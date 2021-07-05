@@ -164,7 +164,9 @@ int main(void)
 		// expect S0 button press now, and iterate mode of operation. when 5s expire after last S1 press, exit mode-change procedure
 		btn_expect_timer = BTN_MODE_CHANGE_EXPECTER;
 		clear_pending_buttons(); // clear any pending button press or hold
+		milliseconds = 0; // use ticker to periodically report current mode of operation
 		while(btn_expect_timer) {
+
 			if(btn_press & BTNS0_MASK) {
 				btn_press &= ~BTNS0_MASK; // clear press
 				btn_expect_timer = BTN_MODE_CHANGE_EXPECTER; // reload
@@ -174,7 +176,15 @@ int main(void)
 					op_mode_new = OP_MODE_1;
 				}
 
+				milliseconds = BTN_MODE_CHANGE_CURR_REPORTER; // report now!
+			}
+
+			if (milliseconds >= BTN_MODE_CHANGE_CURR_REPORTER) {
+				milliseconds = 0;
 				ledb_blink(op_mode_new + 1);
+
+				// prevent changing the mode during blinking, we are blind during that period
+				// clear_pending_buttons(); // clear any pending button press or hold
 			}
 		}
 
@@ -188,12 +198,9 @@ int main(void)
 		}
 
 		leda_off();
-
-		clear_pending_buttons(); // clear any pending button press or hold
 	}
 
 	// initialize EEPROM database tables
-	
 	ledb_on();
 
 	// TABLE: HCS101 device identity for the MITM mode
@@ -233,7 +240,7 @@ int main(void)
 	eedb_init_ctx(&eedb_hcslogdevices);
 
 	// TABLE: HCS sniffing log HCS devices LOGs
-	// THIS IS A FK TABLE OF "eedb_hcslogdevices"
+	// THIS IS A CHILD TABLE OF "eedb_hcslogdevices"
 	eedb_hcsloglogs.start_eeaddr = eedb_hcslogdevices._next_free_eeaddr; // start where previous table ended
 	eedb_hcsloglogs.record_capacity = 500;
 	eedb_hcsloglogs.sizeof_record_entry = sizeof(struct eedb_log_record);
@@ -246,80 +253,8 @@ int main(void)
 	eedb_init_ctx(&eedb_hcsloglogs);
 
 	ledb_off();
-
-	// re-format memory
-	//eedb_format_memory(&eedb_hcsmitm);
-	//eedb_format_memory(&eedb_hcsdb);
-	//eedb_format_memory(&eedb_hcsloglogs);
-
-	/*
-	// insert test
-	struct eedb_hcs_record hcsrecord;
-	hcsrecord.encoder = ENCODER_HCS101;
-	hcsrecord.counter = 0xBABA;
-	hcsrecord.serialno = 123456789;
-	hcsrecord.crypt_key = 0UL;
-	hcsrecord.discriminator = 0;
-	uint8_t inserted = eedb_insert_record(&eedb_hcsmitm, hcsrecord.serialno, 0, &hcsrecord);
-	sprintf(tmp, "Inserted: %u\r\n", inserted);
-	uart_puts(tmp);
-
-	// test of seeking record by PK value
-	uint16_t eeaddr = eedb_find_record_eeaddr(&eedb_hcsmitm, 123456789, 0, 0);
-	sprintf(tmp, "Record found @ 0x%04X\r\n", eeaddr);
-	uart_puts(tmp);
-
-	// test of reading a record by known address
-	struct eedb_record_header rec_header;
-	struct eedb_hcs_record hcsrecord2;
-	eedb_read_record_by_eeaddr(&eedb_hcsmitm, eeaddr, &rec_header, &hcsrecord2);
-	sprintf(tmp, "PK: %lu, FK: %lu, DEL: %u\r\n", rec_header.pk, rec_header.fk, rec_header.deleted);
-	uart_puts(tmp);
-	sprintf(tmp, "Serial: %lu\r\n", hcsrecord2.serialno);
-	uart_puts(tmp);
-
-	// test of deleting a record by PK
-	uint8_t deleted = eedb_delete_record(&eedb_hcsmitm, 123456789, 0, 0);
-	sprintf(tmp, "Deleted: %u\r\n", deleted);
-	uart_puts(tmp);	
-
-	// test of seeking record by PK value
-	eeaddr = eedb_find_record_eeaddr(&eedb_hcsmitm, 123456789, 0, 0);
-	sprintf(tmp, "Record found?? @ 0x%04X\r\n", eeaddr);
-	uart_puts(tmp);
-	*/
 	
-	/*
-	eedb_format_memory(&eedb_hcsdb);
-
-	// insert some records into the HCS table with a FK
-	hcsrecord.encoder = ENCODER_HCS101;
-	hcsrecord.counter = 0xBABA;
-	hcsrecord.serialno = 100;
-	hcsrecord.crypt_key = 0UL;
-	hcsrecord.discriminator = 0;
-	inserted = eedb_insert_record(&eedb_hcsdb, hcsrecord.serialno, 999, &hcsrecord);
-	sprintf(tmp, "Inserted (%lu): %u\r\n", hcsrecord.serialno, inserted);
-	uart_puts(tmp);
-	hcsrecord.encoder = ENCODER_HCS101;
-	hcsrecord.counter = 0xBABA;
-	hcsrecord.serialno = 200;
-	hcsrecord.crypt_key = 0UL;
-	hcsrecord.discriminator = 0;
-	inserted = eedb_insert_record(&eedb_hcsdb, hcsrecord.serialno, 999, &hcsrecord);
-	sprintf(tmp, "Inserted (%lu): %u\r\n", hcsrecord.serialno, inserted);
-	uart_puts(tmp);
-	hcsrecord.encoder = ENCODER_HCS101;
-	hcsrecord.counter = 0xBABA;
-	hcsrecord.serialno = 300;
-	hcsrecord.crypt_key = 0UL;
-	hcsrecord.discriminator = 0;
-	inserted = eedb_insert_record(&eedb_hcsdb, hcsrecord.serialno, 999, &hcsrecord);
-	sprintf(tmp, "Inserted (%lu): %u\r\n", hcsrecord.serialno, inserted);
-	uart_puts(tmp);
-	*/
-
-	// print all grabbed hcs devices
+	// DEBUGGING: print all grabbed hcs devices
 	struct eedb_hcs_record one_record;
 	eedb_for_each_record(&eedb_hcslogdevices, EEDB_PKFK_ANY, 0, &foreach_hcs_logdevice_record_callback, 0, (void *)&one_record);
 	
@@ -549,7 +484,7 @@ void process_keydown(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_hea
 				
 				eedb_read_record_by_eeaddr(&eedb_hcsmitm, eeaddr, 0, &hcs101record);
 
-				// transfer from edb_hcs_record to KEELOQ_DECODE_PLAIN so we can encode it and transmitt
+				// transfer from edb_hcs_record to KEELOQ_DECODE_PLAIN so we can encode it and transmit
 				struct KEELOQ_DECODE_PLAIN hcs101decoded;
 				hcs101decoded.buttons = hcs101record.buttons;
 				hcs101decoded.counter = ++hcs101record.counter; // increment counter value in the record
@@ -561,7 +496,7 @@ void process_keydown(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_hea
 				char hcs101buff[KL_BUFF_LEN];
 				keeloq_encode(ENCODER_HCS101, &hcs101decoded, 0, (uint8_t *)&hcs101buff);
 
-				// send burst few times, just in case receiver is lazy
+				// send a burst few times, just in case receiver is lazy
 				for(uint8_t i = 0; i < 3; i++) {
 					kl_tx(&kl_ctx, (uint8_t *)&hcs101buff, 66, hcs101record.timing_element, 23, hcs101record.header_length, 15000);
 				}
@@ -883,62 +818,60 @@ void enroll_transmitter_rf() {
 				// make sure someone isn't using two remotes during this process
 				// serial numbers match -> continue
 				if(decoded_rolling1.serial == decoded_rolling2.serial) {
-					// classify the remote
+					// classify the remote,
+					// if it is one of the encrypted series:
+					// discrimination bits must match
+					// fixed portion and rolling-code button information must match too between any transmission and successive transmissions as well
+					// counter from the second transmission must by > then first transmission within window of say 5 transmissions
+					if (
+						decoded_rolling1.disc == decoded_rolling2.disc
+						&& decoded_rolling1.buttons == decoded_rolling1.buttons_enc && decoded_rolling2.buttons == decoded_rolling2.buttons_enc
+						&& decoded_rolling1.buttons == decoded_rolling2.buttons
+						&& next_within_window(decoded_rolling2.counter, decoded_rolling1.counter, 5)
+						) {
+						// it is one of the encrypted ones, lets figure out which one
 
-											// if it is one of the encrypted series:
-											// discrimination bits must match
-											// fixed portion and rolling-code button information must match too between any transmission and successive transmissions as well
-											// counter from the second transmission must by > then first transmission within window of say 5 transmissions
-											if(
-											decoded_rolling1.disc == decoded_rolling2.disc
-											&& decoded_rolling1.buttons == decoded_rolling1.buttons_enc && decoded_rolling2.buttons == decoded_rolling2.buttons_enc
-											&& decoded_rolling1.buttons == decoded_rolling2.buttons
-											&& next_within_window(decoded_rolling2.counter, decoded_rolling1.counter, 5)
-											) {
-												// it is one of the encrypted ones, lets figure out which one
-												
-												// if 66 bit:
-												//		we can assume it is hcs200...
-												// else if 67 bit:
-												//		it is one of hcs360/361
-												// else if 69 bit:
-												//		it is hcs362
-												// else: unsupported device
+						// if 66 bit:
+						//		we can assume it is hcs200...
+						// else if 67 bit:
+						//		it is one of hcs360/361
+						// else if 69 bit:
+						//		it is hcs362
+						// else: unsupported device
 
-												// HCS362
-												if(kl_ctx.kl_rx_buff_bit_index == 69) {
-													encoder = ENCODER_HCS362;
-												}
-												// HCS360/361
-												else if(kl_ctx.kl_rx_buff_bit_index == 67) {
-													encoder = ENCODER_HCS360; // assume it is HCS360
-												}
-												// HCS101, HCS200, HCS201, HCS300, HCS301, HCS320
-												else if(kl_ctx.kl_rx_buff_bit_index == 66) {
-													// we can only assume it is HCS200
-													encoder = ENCODER_HCS200;
-												}
-												decoded = &decoded_rolling1;
-											}
-											// the decryption with masterkey failed
-											// maybe it is fixed-code encoder HCS101?
-											else if(kl_ctx.kl_rx_buff_bit_index == 66) {
-												// decode both transmissions without the key this time and compare them to see if this was HCS101
-												keeloq_decode(first_rx_kl_buff, kl_ctx.kl_rx_buff_bit_index, 0, &decoded_fixed1);
-												struct KEELOQ_DECODE_PLAIN decoded_fixed2;
-												keeloq_decode((uint8_t *)kl_ctx.kl_rx_buff, kl_ctx.kl_rx_buff_bit_index, 0, &decoded_fixed2);
+						// HCS362
+						if (kl_ctx.kl_rx_buff_bit_index == 69) {
+							encoder = ENCODER_HCS362;
+						}
+						// HCS360/361
+						else if (kl_ctx.kl_rx_buff_bit_index == 67) {
+							encoder = ENCODER_HCS360; // assume it is HCS360
+						}
+						// HCS101, HCS200, HCS201, HCS300, HCS301, HCS320
+						else if (kl_ctx.kl_rx_buff_bit_index == 66) {
+							// we can only assume it is HCS200
+							encoder = ENCODER_HCS200;
+						}
+						decoded = &decoded_rolling1;
+					}
+					// the decryption with masterkey failed
+					// maybe it is fixed-code encoder HCS101?
+					else if (kl_ctx.kl_rx_buff_bit_index == 66) {
+						// decode both transmissions without the key this time and compare them to see if this was HCS101
+						keeloq_decode(first_rx_kl_buff, kl_ctx.kl_rx_buff_bit_index, 0, &decoded_fixed1);
+						struct KEELOQ_DECODE_PLAIN decoded_fixed2;
+						keeloq_decode((uint8_t*)kl_ctx.kl_rx_buff, kl_ctx.kl_rx_buff_bit_index, 0, &decoded_fixed2);
 
-												// HCS101 also increases its counter value so we can apply the same logic here
-												if(
-												decoded_fixed1.buttons == decoded_fixed1.buttons_enc && decoded_fixed2.buttons == decoded_fixed2.buttons_enc
-												&& decoded_fixed1.buttons == decoded_fixed2.buttons
-												&& next_within_window(decoded_fixed2.counter, decoded_fixed1.counter, 5)
-												) {
-													encoder = ENCODER_HCS101;
-													decoded = &decoded_fixed1;
-												}
-											}
-					
+						// HCS101 also increases its counter value so we can apply the same logic here
+						if (
+							decoded_fixed1.buttons == decoded_fixed1.buttons_enc && decoded_fixed2.buttons == decoded_fixed2.buttons_enc
+							&& decoded_fixed1.buttons == decoded_fixed2.buttons
+							&& next_within_window(decoded_fixed2.counter, decoded_fixed1.counter, 5)
+							) {
+							encoder = ENCODER_HCS101;
+							decoded = &decoded_fixed1;
+						}
+					}
 				}
 
 				// encoder classified? let's save it into eeprom memorajz
@@ -1438,20 +1371,22 @@ ISR(TIMER0_OVF_vect, ISR_NOBLOCK)
 	if(btn_hold_timer) btn_hold_timer--;			// to detect button holds, we shouldn't overflow!
 	if(btn_expect_timer) btn_expect_timer--;		// to detect button idling
 	if(action_expecter_timer) action_expecter_timer--; // for expecting misc actions
-	if(isr_led_blinker_tmr) isr_led_blinker_tmr--;	// for blinking the LED within ISR (here)
-	
+
 	// blinking LEDs from ISR. limitation: all leds can blink at the same rate at any time
-	// time to toggle LED(s)?
-	if(isr_led_blinker && isr_led_blinker_tmr == 0) {
-		isr_led_blinker_tmr = isr_led_blinker_rate; // reload for toggling
-		if(isr_led_blinker & ISR_LED_A_MASK) {
-			togglePin(LEDA_PORT, LEDA_PIN);
-		}
-		if(isr_led_blinker & ISR_LED_B_MASK) {
-			togglePin(LEDB_PORT, LEDB_PIN);
-		}
-		if(isr_led_blinker & ISR_LED_C_MASK) {
-			togglePin(LEDC_PORT, LEDC_PIN);
+	if(isr_led_blinker) {
+		isr_led_blinker_tmr--;
+		// time to toggle LED(s)?
+		if (isr_led_blinker_tmr == 0) {
+			isr_led_blinker_tmr = isr_led_blinker_rate; // reload for toggling
+			if (isr_led_blinker & ISR_LED_A_MASK) {
+				togglePin(LEDA_PORT, LEDA_PIN);
+			}
+			if (isr_led_blinker & ISR_LED_B_MASK) {
+				togglePin(LEDB_PORT, LEDB_PIN);
+			}
+			if (isr_led_blinker & ISR_LED_C_MASK) {
+				togglePin(LEDC_PORT, LEDC_PIN);
+			}
 		}
 	}
 }

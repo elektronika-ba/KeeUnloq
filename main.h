@@ -120,6 +120,7 @@
 // Button related timers
 #define	BTN_HOLD_TMR						950		// miliseconds to pronounce button as held rather than pressed
 #define BTN_MODE_CHANGE_EXPECTER			5000	// ms to exit the mode-change.. mode
+#define BTN_MODE_CHANGE_CURR_REPORTER		1500	// ms, on every this much report current mode of operation
 #define BTN_PROG_N_ENROLL_EXPECTER			20000	// ms to expect button press for programming the encoder IC
 #define BTN_REMOVE_REMOTE_EXPECTER			10000	// ms to expect remote reception via RF and to remove it
 #define BTN_ENROLL_FIRST_REMOTE_EXPECTER	10000	// ms to expect FIRST remote reception via RF and to enroll it
