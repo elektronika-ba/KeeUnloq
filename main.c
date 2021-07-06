@@ -49,7 +49,8 @@ volatile struct keeloq_ctx kl_ctx;
 
 // misc working variables
 volatile uint8_t op_mode; // current device operating mode (stored in internal eeprom)
-volatile uint16_t last_grabbed_eeaddr;
+volatile uint16_t last_grabbed_eeaddr = EEDB_INVALID_ADDR;
+volatile uint16_t emulator_tx_eeaddr; // which one from memory is selected for tx emulation
 
 void foreach_hcs_loglog_record_callback(volatile struct eedb_ctx *ctx, struct eedb_record_header *header, void *record) {
 	uart_puts("    foreach_hcs_loglog_record_callback()\r\n");
@@ -125,8 +126,8 @@ int main(void)
 		uart_puts("EEPROM VALID.\r\n");
 		
 		op_mode = eeprom_read_byte((uint8_t *)EEPROM_OP_MODE);
-		
 		eeprom_read_block((uint64_t *)&master_crypt_key, (uint8_t *)EEPROM_MASTER_CRYPT_KEY, 8);
+		eeprom_read_block((uint16_t *)&emulator_tx_eeaddr, (uint8_t *)EEPROM_TX_EMULATOR_EEADDR, 2);
 
 		// todo: ostalo...
 	}
@@ -135,9 +136,9 @@ int main(void)
 		uart_puts("EEPROM INVALID.\r\n");
 		
 		op_mode = OP_MODE_1;
-
 		master_crypt_key = 0xDFD209D119A813CE; // some random value for development
-		
+		emulator_tx_eeaddr = EEDB_INVALID_ADDR;
+
 		// todo: ostalo...
 		
 		// prebaci to odma u EEPROM, nastavicemo odatle ubuduce
@@ -253,7 +254,23 @@ int main(void)
 	eedb_init_ctx(&eedb_hcsloglogs);
 
 	ledb_off();
-	
+
+	// selecting/changing tx emulator identity?
+	if (op_mode == OP_MODE4 && !(BTNS3_PINREG & _BV(BTNS3_PIN))) {
+		leda_on();
+		ledb_on();
+		ledc_on();
+		delay_ms_(1000);
+		leda_off();
+		ledb_off();
+		ledc_off();
+		delay_ms_(1000);
+		
+		// show current index
+		// convert to ordinal number of database memory space
+		// TODO: do ovdje sam dosao
+	}
+
 	// DEBUGGING: print all grabbed hcs devices
 	struct eedb_hcs_record one_record;
 	eedb_for_each_record(&eedb_hcslogdevices, EEDB_PKFK_ANY, 0, &foreach_hcs_logdevice_record_callback, 0, (void *)&one_record);
@@ -282,7 +299,7 @@ int main(void)
 	{
 		// in op-modes 1 & 2 expect buttons for programming
 		// programming also de-initializes KeeLoq decoder library so we need to re-init it here
-		if(op_mode == OP_MODE_1 || op_mode == OP_MODE_2 || op_mode == OP_MODE_3) {
+		if(op_mode == OP_MODE_1 || op_mode == OP_MODE_2) {
 			uint8_t need_to_reinit_kl_rx = check_remote_prog_entry();
 
 			// re-start KeeLoq decoder because there was some programming done and hardware *might need* to be re-initialized
@@ -294,10 +311,9 @@ int main(void)
 			}
 		}
 		
-		// remote transmitter emulator
-		if (op_mode == OP_MODE_3 || op_mode == OP_MODE_4) {
-			// TODO
-			//check_tx_emulator_buttons();
+		// in op-mode 4 expect buttons for transmitting and for changing the remote controller "bank"
+		if (op_mode == OP_MODE_4) {
+			check_tx_emulator_buttons();
 		}
 
 		char tmp[64];
@@ -511,7 +527,6 @@ void process_keydown(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_hea
 				
 				ledb_off();		
 			}
-		
 		}
 		break;
 
@@ -577,9 +592,14 @@ void process_keydown(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_hea
 						eedb_update_record(&eedb_hcslogdevices, decoded->serial, 0, 0, 0, &dbrecord);
 					}
 				}
+				// if it is HCS101, update the SYNC COUNTER value so we keep track of it
+				else if (dbrecord.encoder == ENCODER_HCS101) {
+					dbrecord.counter = decoded->counter;
+					eedb_update_record(&eedb_hcslogdevices, decoded->serial, 0, 0, 0, &dbrecord);
+				}
 			}
 
-			// snimi i log entry ako nije HCS101, jer njega nemamo sta snimati, samo se buttonsi mijenjaju
+			// snimi i log entry ako nije HCS101, jer njega nemamo sta snimati, samo se buttonsi mijenjaju. counter vec gore updejtamo
 			if(dbrecord.encoder != ENCODER_HCS101) {
 				struct eedb_log_record log_record;
 				memcpy(log_record.kl_rx_buff, kl_rx_buff, KL_BUFF_LEN);
@@ -594,9 +614,7 @@ void process_keydown(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_hea
 		break;
 
 	case OP_MODE_4:
-		{
-			// todo...		
-		}
+		// we don't receive anything in Mode 4		
 		break;
 	}
 }
@@ -613,17 +631,17 @@ void process_keyup(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_heade
 
 		// MODE: MITM Upgrader
 		case OP_MODE_2:
-
+			// something?
 			break;
 
 		// MODE: Grabber/Logger
 		case OP_MODE_3:
-
+			// something?
 			break;
 
 		// MODE: Remote transmitter emulator
 		case OP_MODE_4:
-
+			// something?
 			break;
 	}
 }
@@ -1133,6 +1151,9 @@ void update_settings_to_eeprom() {
 
 	// MASTER CRYPT-KEY
 	eeprom_write_block((uint64_t *)&master_crypt_key, (uint8_t *)EEPROM_MASTER_CRYPT_KEY, 8);
+
+	// TX EMULATOR EEPROM ADDRESS
+	eeprom_write_block((uint16_t*)&emulator_tx_eeaddr, (uint8_t*)EEPROM_TX_EMULATOR_EEADDR, 2);
 
 	// say eeprom is valid
 	eeprom_write_byte((uint8_t *)EEPROM_MAGIC, 0xAA);
