@@ -256,7 +256,7 @@ int main(void)
 	ledb_off();
 
 	// selecting/changing tx emulator identity?
-	if (op_mode == OP_MODE4 && !(BTNS3_PINREG & _BV(BTNS3_PIN))) {
+	if (op_mode == OP_MODE_4 && !(BTNS3_PINREG & _BV(BTNS3_PIN))) {
 		leda_on();
 		ledb_on();
 		ledc_on();
@@ -313,7 +313,7 @@ int main(void)
 		
 		// in op-mode 4 expect buttons for transmitting and for changing the remote controller "bank"
 		if (op_mode == OP_MODE_4) {
-			check_tx_emulator_buttons();
+			//check_tx_emulator_buttons();
 		}
 
 		char tmp[64];
