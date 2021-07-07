@@ -44,7 +44,7 @@
 // Device operating modes
 #define OP_MODE_1		0	// Receiver module
 #define OP_MODE_2		1	// MITM upgrader
-#define OP_MODE_3		2	// Grab & collect & retransmit last received
+#define OP_MODE_3		2	// Grab, collect, re-transmit all memory
 #define OP_MODE_4		3	// Remote HCS emulator from memory
 #define OP_MODE_LAST	OP_MODE_4	// which one is the last one?
 

@@ -108,7 +108,7 @@ int main(void)
 	// Interrupts ON
 	// Note: global interrupts should NOT be disabled, everything is relying on them from now on!
 	sei();
-
+	
 	delay_ms_(50);
 
 	// Setup the context for KeeLoq TX&RX library
@@ -254,22 +254,6 @@ int main(void)
 	eedb_init_ctx(&eedb_hcsloglogs);
 
 	ledb_off();
-
-	// selecting/changing tx emulator identity?
-	if (op_mode == OP_MODE_4 && !(BTNS3_PINREG & _BV(BTNS3_PIN))) {
-		leda_on();
-		ledb_on();
-		ledc_on();
-		delay_ms_(1000);
-		leda_off();
-		ledb_off();
-		ledc_off();
-		delay_ms_(1000);
-		
-		// show current index
-		// convert to ordinal number of database memory space
-		// TODO: do ovdje sam dosao
-	}
 
 	// DEBUGGING: print all grabbed hcs devices
 	struct eedb_hcs_record one_record;

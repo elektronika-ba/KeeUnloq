@@ -241,10 +241,9 @@ uint16_t eedb_find_record_eeaddr(volatile struct eedb_ctx *ctx, uint32_t pk, uin
 		struct eedb_record_header header_entry;
 		eedb_read_i2c(ctx, eeaddr, sizeof(struct eedb_record_header), &header_entry);
 
-		// lets find next free memory location in advance
+		// lets save the next free memory location in advance
 		if(ctx->_next_free_header_entry_eeaddr == EEDB_INVALID_ADDR && header_entry.deleted) {
 			ctx->_next_free_header_entry_eeaddr = eeaddr;
-			continue; // this one is deleted, so skip it
 		}
 
 		if(

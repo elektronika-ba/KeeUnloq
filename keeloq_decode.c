@@ -52,7 +52,7 @@ uint8_t keeloq_decode(uint8_t *kl_buff, uint8_t kl_buff_bit_size, uint64_t key, 
 
 		// take serial3 also
 		decoded->serial3 = ((uint16_t)(kl_buff[1] << 8) | kl_buff[0]) & 0x03FF;
-	}	
+	}
 	
 	// Vlow bit
 	decoded->vlow = kl_buff[8] & 0b00000001;
