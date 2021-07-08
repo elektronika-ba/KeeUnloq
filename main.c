@@ -48,7 +48,7 @@ volatile uint16_t action_expecter_timer = 0;
 volatile struct keeloq_ctx kl_ctx;
 
 // misc working variables
-volatile uint8_t op_mode; // current device operating mode (stored in internal eeprom)
+volatile uint8_t option_state; // device options state 
 volatile uint16_t last_grabbed_eeaddr = EEDB_INVALID_ADDR;
 volatile uint16_t emulator_tx_eeaddr; // which one from memory is selected for tx emulation
 
@@ -122,10 +122,12 @@ int main(void)
 	
 	// read settings from internal EEPROM
 	// eeprom has some settings?
-    if( eeprom_read_byte((uint8_t *)EEPROM_MAGIC) == 0xAA ) { // 0xAA is my "valid flag"
+    if( eeprom_read_byte((uint8_t *)EEPROM_MAGIC) == EEPROM_MAGIC_VALUE) {
+		#ifdef DEBUG
 		uart_puts("EEPROM VALID.\r\n");
+		#endif
 		
-		op_mode = eeprom_read_byte((uint8_t *)EEPROM_OP_MODE);
+		option_state = eeprom_read_byte((uint8_t *)EEPROM_OPTION_STATES);
 		eeprom_read_block((uint64_t *)&master_crypt_key, (uint8_t *)EEPROM_MASTER_CRYPT_KEY, 8);
 		eeprom_read_block((uint16_t *)&emulator_tx_eeaddr, (uint8_t *)EEPROM_TX_EMULATOR_EEADDR, 2);
 
@@ -133,10 +135,12 @@ int main(void)
 	}
 	// nope, use defaults
 	else {
+		#ifdef DEBUG
 		uart_puts("EEPROM INVALID.\r\n");
+		#endif
 		
-		op_mode = OP_MODE_1;
-		master_crypt_key = 0xDFD209D119A813CE; // some random value for development
+		option_state = OP_STATE_1; // only normal receiver enabled by default
+		master_crypt_key = 0xB00B1E5B00B1E500; // some random value for development
 		emulator_tx_eeaddr = EEDB_INVALID_ADDR;
 
 		// todo: ostalo...
@@ -145,13 +149,27 @@ int main(void)
 		update_settings_to_eeprom();
 	}
 
+	#ifdef DEBUG
+	uart_puts("Option 1: ");
+	if (option_state & OP_STATE_1) uart_puts("ON.\r\n");
+	else uart_puts("OFF.\r\n");
+	uart_puts("Option 2: ");
+	if (option_state & OP_STATE_2) uart_puts("ON.\r\n");
+	else uart_puts("OFF.\r\n");
+	uart_puts("Option 3: ");
+	if (option_state & OP_STATE_3) uart_puts("ON.\r\n");
+	else uart_puts("OFF.\r\n");
+	uart_puts("Option 4: ");
+	if (option_state & OP_STATE_4) uart_puts("ON.\r\n");
+	else uart_puts("OFF.\r\n");
 	char tmp[128];
-	sprintf(tmp, "OP-MODE: %u\r\n", op_mode);
-	uart_puts(tmp);
 	sprintf(tmp, "CRYPT KEY: 0x%04X%04X%04X%04X\r\n", (uint16_t)(master_crypt_key >> 48), (uint16_t)(master_crypt_key >> 32), (uint16_t)(master_crypt_key >> 16), (uint16_t)master_crypt_key);
 	uart_puts(tmp);
+	sprintf(tmp, "EMULATOR TX EEADDR: 0x%04X\r\n", emulator_tx_eeaddr);
+	uart_puts(tmp);
+	#endif
 
-	// change mode on startup?
+	// changing option states on startup?
 	// check to see if button S0 is pressed upon startup
 	if( !(BTNS0_PINREG & _BV(BTNS0_PIN)) ) {
 		leda_on();
@@ -259,8 +277,11 @@ int main(void)
 	struct eedb_hcs_record one_record;
 	eedb_for_each_record(&eedb_hcslogdevices, EEDB_PKFK_ANY, 0, &foreach_hcs_logdevice_record_callback, 0, (void *)&one_record);
 	
-	// report operating mode to LED
-	leda_blink(op_mode+1);
+	// report state of all options on LED A
+	if (option_state & OP_STATE_1) { leda_blink(1); delay_ms_(600); }
+	if (option_state & OP_STATE_2) { leda_blink(2); delay_ms_(600); }
+	if (option_state & OP_STATE_3) { leda_blink(3); delay_ms_(600); }
+	if (option_state & OP_STATE_4) { leda_blink(4); delay_ms_(600); }
 
 	uart_puts("RESUME>\r\nEND>\r\n");
 
@@ -1130,8 +1151,8 @@ uint8_t prog_hcs_encoder(struct KEELOQ_DECODE_PROG_PROFILE *prog_profile) {
 void update_settings_to_eeprom() {
 	// save all working stuff to eeprom, and mark if VALID
 
-	// OP-MODE
-	eeprom_write_byte((uint8_t *)EEPROM_OP_MODE, op_mode);
+	// OPTIONS STATES
+	eeprom_write_byte((uint8_t *)EEPROM_OPTION_STATES, option_state);
 
 	// MASTER CRYPT-KEY
 	eeprom_write_block((uint64_t *)&master_crypt_key, (uint8_t *)EEPROM_MASTER_CRYPT_KEY, 8);

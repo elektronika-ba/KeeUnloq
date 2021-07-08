@@ -37,16 +37,18 @@
 // EEPROM addresses
 #define	EEPROM_START				0								// start of our data in eeprom is here
 #define EEPROM_MAGIC				EEPROM_START + 0				// eeprom OK - magic value
-#define EEPROM_OP_MODE				EEPROM_MAGIC + 1				// working operating mode address
-#define EEPROM_MASTER_CRYPT_KEY		EEPROM_OP_MODE + 1				// master crypt key for learning encrypted HCS devices via RF
+#define EEPROM_OPTION_STATES		EEPROM_MAGIC + 1				// state of operating options
+#define EEPROM_MASTER_CRYPT_KEY		EEPROM_OPTION_STATES + 1		// master crypt key for learning encrypted HCS devices via RF
 #define EEPROM_TX_EMULATOR_EEADDR	EEPROM_MASTER_CRYPT_KEY + 8		// master crypt key for learning encrypted HCS devices via RF
 
-// Device operating modes
-#define OP_MODE_1		0	// Receiver module
-#define OP_MODE_2		1	// MITM upgrader
-#define OP_MODE_3		2	// Grab, collect, re-transmit all memory
-#define OP_MODE_4		3	// Remote HCS emulator from memory
-#define OP_MODE_LAST	OP_MODE_4	// which one is the last one?
+#define EEPROM_MAGIC_VALUE			0xAA
+
+// Device options state
+#define OP_STATE_1		0	// Receiver module
+#define OP_STATE_2		1	// MITM upgrader
+#define OP_STATE_3		2	// Grab, collect
+#define OP_STATE_4		3	// Remote emulator from memory
+#define OP_STATE_LEN	4	// 4 options currently implemented
 
 // RF IN data pin
 #define	RX_PIN			2
