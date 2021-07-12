@@ -149,76 +149,6 @@ int main(void)
 		update_settings_to_eeprom();
 	}
 
-	#ifdef DEBUG
-	uart_puts("Option 1: ");
-	if (option_state & OP_STATE_1) uart_puts("ON.\r\n");
-	else uart_puts("OFF.\r\n");
-	uart_puts("Option 2: ");
-	if (option_state & OP_STATE_2) uart_puts("ON.\r\n");
-	else uart_puts("OFF.\r\n");
-	uart_puts("Option 3: ");
-	if (option_state & OP_STATE_3) uart_puts("ON.\r\n");
-	else uart_puts("OFF.\r\n");
-	uart_puts("Option 4: ");
-	if (option_state & OP_STATE_4) uart_puts("ON.\r\n");
-	else uart_puts("OFF.\r\n");
-	char tmp[128];
-	sprintf(tmp, "CRYPT KEY: 0x%04X%04X%04X%04X\r\n", (uint16_t)(master_crypt_key >> 48), (uint16_t)(master_crypt_key >> 32), (uint16_t)(master_crypt_key >> 16), (uint16_t)master_crypt_key);
-	uart_puts(tmp);
-	sprintf(tmp, "EMULATOR TX EEADDR: 0x%04X\r\n", emulator_tx_eeaddr);
-	uart_puts(tmp);
-	#endif
-
-	// changing option states on startup?
-	// check to see if button S0 is pressed upon startup
-	if( !(BTNS0_PINREG & _BV(BTNS0_PIN)) ) {
-		leda_on();
-
-		delay_ms_(500);
-
-		ledb_blink(op_mode + 1); // blink current mode
-
-		uint8_t op_mode_new = op_mode;
-
-		// expect S0 button press now, and iterate mode of operation. when 5s expire after last S1 press, exit mode-change procedure
-		btn_expect_timer = BTN_MODE_CHANGE_EXPECTER;
-		clear_pending_buttons(); // clear any pending button press or hold
-		milliseconds = 0; // use ticker to periodically report current mode of operation
-		while(btn_expect_timer) {
-
-			if(btn_press & BTNS0_MASK) {
-				btn_press &= ~BTNS0_MASK; // clear press
-				btn_expect_timer = BTN_MODE_CHANGE_EXPECTER; // reload
-
-				op_mode_new++;
-				if(op_mode_new > OP_MODE_LAST) {
-					op_mode_new = OP_MODE_1;
-				}
-
-				milliseconds = BTN_MODE_CHANGE_CURR_REPORTER; // report now!
-			}
-
-			if (milliseconds >= BTN_MODE_CHANGE_CURR_REPORTER) {
-				milliseconds = 0;
-				ledb_blink(op_mode_new + 1);
-
-				// prevent changing the mode during blinking, we are blind during that period
-				// clear_pending_buttons(); // clear any pending button press or hold
-			}
-		}
-
-		// op-mode changed?
-		if(op_mode_new != op_mode)
-		{
-			op_mode = op_mode_new;
-
-			// save new mode to eeprom
-			update_settings_to_eeprom();
-		}
-
-		leda_off();
-	}
-
 	// initialize EEPROM database tables
 	ledb_on();
 
@@ -236,7 +166,7 @@ int main(void)
 
 	// TABLE: HCS device identities
 	eedb_hcsdb.start_eeaddr = eedb_hcsmitm._next_free_eeaddr; // start where previous table ended
-	eedb_hcsdb.record_capacity = 250;
+	eedb_hcsdb.record_capacity = 500;
 	eedb_hcsdb.sizeof_record_entry = sizeof(struct eedb_hcs_record);
 	eedb_hcsdb.i2c_addr = 0b10100000;
 	eedb_hcsdb.fn_i2c_start = &twi_start;
@@ -248,7 +178,7 @@ int main(void)
 
 	// TABLE: HCS sniffing log HCS devices
 	eedb_hcslogdevices.start_eeaddr = eedb_hcsdb._next_free_eeaddr; // start where previous table ended
-	eedb_hcslogdevices.record_capacity = 100;
+	eedb_hcslogdevices.record_capacity = 150;
 	eedb_hcslogdevices.sizeof_record_entry = sizeof(struct eedb_hcs_record);
 	eedb_hcslogdevices.i2c_addr = 0b10100000;
 	eedb_hcslogdevices.fn_i2c_start = &twi_start;
@@ -273,23 +203,126 @@ int main(void)
 
 	ledb_off();
 
+	// changing option states on startup?
+	// check to see if button S0 is pressed upon startup
+	uint8_t was_setup = 0;
+	if( !(BTNS0_PINREG & _BV(BTNS0_PIN)) ) {
+		leda_on();
+
+		delay_ms_(500);
+		
+		was_setup = 1;
+
+		uint8_t option_state_new = option_state;
+		uint8_t option_index = 1;
+		
+		clear_pending_buttons(); // clear any pending button press or hold
+		btn_expect_timer = BTN_MODE_CHANGE_EXPECTER;
+		milliseconds = BTN_MODE_CHANGE_CURR_REPORTER; // report state now! - use ticker to periodically report current mode of operation
+		while(btn_expect_timer) {
+
+			// button S1 selects the option
+			if(btn_press & BTNS1_MASK) {
+				btn_press &= ~BTNS1_MASK; // clear press
+				btn_expect_timer = BTN_MODE_CHANGE_EXPECTER; // reload
+
+				option_index++;
+				if(option_index > OP_STATE_LEN) {
+					option_index = 1;
+				}
+
+				milliseconds = BTN_MODE_CHANGE_CURR_REPORTER; // report state now!
+			}
+
+			// button S2 changes currently selected option's state
+			if(btn_press & BTNS2_MASK) {
+				btn_press &= ~BTNS2_MASK; // clear press
+				btn_expect_timer = BTN_MODE_CHANGE_EXPECTER; // reload
+
+				option_state_new ^= _BV(option_index - 1); // toggle
+				
+				milliseconds = BTN_MODE_CHANGE_CURR_REPORTER; // report state now!
+			}
+
+			// periodically report currently selected option's state on LED C
+			if (milliseconds >= BTN_MODE_CHANGE_CURR_REPORTER) {
+				// report current option
+				ledb_blink(option_index);
+
+				// report this option's state
+				ledc_blink(1 + !!(option_state_new & _BV(option_index - 1)));
+
+				milliseconds = 0;
+			}
+			
+			// terminate setup?
+			// button S3 terminates the process of setup, not to wait for the timeout
+			if(btn_press & BTNS3_MASK) {
+				btn_press &= ~BTNS3_MASK; // clear press
+				btn_expect_timer = 0; // this should do it
+			}			
+		}
+
+		// op-mode changed?
+		if(option_state_new != option_state)
+		{
+			option_state = option_state_new;
+
+			// addon:
+			// if all options are disabled: enable option 1
+			if(option_state == 0) option_state = OP_STATE_1;
+			// if option 4 is enabled: disable all other options
+			if(option_state & OP_STATE_4) option_state = OP_STATE_4;
+
+			// save new mode to eeprom
+			update_settings_to_eeprom();
+		}
+
+		leda_off();
+	}
+
 	// DEBUGGING: print all grabbed hcs devices
 	struct eedb_hcs_record one_record;
 	eedb_for_each_record(&eedb_hcslogdevices, EEDB_PKFK_ANY, 0, &foreach_hcs_logdevice_record_callback, 0, (void *)&one_record);
 	
 	// report state of all options on LED A
-	if (option_state & OP_STATE_1) { leda_blink(1); delay_ms_(600); }
-	if (option_state & OP_STATE_2) { leda_blink(2); delay_ms_(600); }
-	if (option_state & OP_STATE_3) { leda_blink(3); delay_ms_(600); }
-	if (option_state & OP_STATE_4) { leda_blink(4); delay_ms_(600); }
+	if(!was_setup) {
+		if (option_state & OP_STATE_1) { leda_blink(1); delay_ms_(450); }
+		if (option_state & OP_STATE_2) { leda_blink(2); delay_ms_(450); }
+		if (option_state & OP_STATE_3) { leda_blink(3); delay_ms_(450); }
+		if (option_state & OP_STATE_4) { leda_blink(4); delay_ms_(450); }
+	}
+	ledc_blink(1);
 
+	#ifdef DEBUG
+	uart_puts("Option 1: ");
+	if (option_state & OP_STATE_1) uart_puts("ON.\r\n");
+	else uart_puts("OFF.\r\n");
+	uart_puts("Option 2: ");
+	if (option_state & OP_STATE_2) uart_puts("ON.\r\n");
+	else uart_puts("OFF.\r\n");
+	uart_puts("Option 3: ");
+	if (option_state & OP_STATE_3) uart_puts("ON.\r\n");
+	else uart_puts("OFF.\r\n");
+	uart_puts("Option 4: ");
+	if (option_state & OP_STATE_4) uart_puts("ON.\r\n");
+	else uart_puts("OFF.\r\n");
+	char tmp[128];
+	sprintf(tmp, "CRYPT KEY: 0x%04X%04X%04X%04X\r\n", (uint16_t)(master_crypt_key >> 48), (uint16_t)(master_crypt_key >> 32), (uint16_t)(master_crypt_key >> 16), (uint16_t)master_crypt_key);
+	uart_puts(tmp);
+	sprintf(tmp, "EMULATOR TX EEADDR: 0x%04X\r\n", emulator_tx_eeaddr);
+	uart_puts(tmp);
+	#endif
+	
 	uart_puts("RESUME>\r\nEND>\r\n");
 
+	/*
 	// start KeeLoq decoder if not in remote transmitter emulator
 	if (op_mode != OP_MODE_4) {
 		kl_rx_stop(&kl_ctx);
 		kl_rx_start(&kl_ctx); // start the keeloq rx
 	}
+	*/
 
 	// for looping and processing
 	uint8_t processed = 0;
@@ -302,6 +335,7 @@ int main(void)
 	clear_pending_buttons(); // clear any pending button press or hold
 	while(1)
 	{
+		/*
 		// in op-modes 1 & 2 expect buttons for programming
 		// programming also de-initializes KeeLoq decoder library so we need to re-init it here
 		if(op_mode == OP_MODE_1 || op_mode == OP_MODE_2) {
@@ -320,6 +354,7 @@ int main(void)
 		if (op_mode == OP_MODE_4) {
 			//check_tx_emulator_buttons();
 		}
+		*/
 
 		char tmp[64];
 
@@ -328,6 +363,7 @@ int main(void)
 			leda_on();			
 		}
 
+		/*
 		// KeeLoq library received something
 		if (kl_ctx.kl_rx_buff_state == KL_BUFF_FULL) {
 			// perform processing, just once
@@ -352,7 +388,7 @@ int main(void)
 
 					sprintf(tmp, "SERIAL: %lu\r\n", decoded.serial);
 					uart_puts(tmp);
-
+					
 					verify_ok = event_keydown(&decoded, &header, &record, (uint8_t *)kl_ctx.kl_rx_buff);
 				}
 				else {
@@ -386,9 +422,12 @@ int main(void)
 				processed = 0;
 			}
 		}
+		*/
+
 	}
 }
 
+/*
 // key pressed on a remote, lets see if it is a valid one
 uint8_t event_keydown(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_header *header, struct eedb_hcs_record *record, uint8_t *kl_rx_buff) {
 	switch (op_mode) {
@@ -466,7 +505,7 @@ uint8_t event_keydown(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_he
 
 	return 1; // ok
 }
-
+		
 // key released on a remote
 void event_keyup(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_header *header, struct eedb_hcs_record *record) {
 	// no special event on keyup, just call process_keyup()
@@ -650,6 +689,7 @@ void process_keyup(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_heade
 			break;
 	}
 }
+*/
 
 void clear_pending_buttons() {
 	btn_hold = 0;
@@ -912,6 +952,7 @@ void enroll_transmitter_rf() {
 					record.timing_element = kl_ctx.kl_rx_timing_element;
 					record.header_length = kl_ctx.kl_rx_header_length;
 
+					/*
 					// MODE: MITM Upgrader & HCS101 received? - store it in special section
 					if (op_mode == OP_MODE_2 && encoder == ENCODER_HCS101) {
 						// save to database
@@ -948,6 +989,7 @@ void enroll_transmitter_rf() {
 							}
 						}
 					}
+					*/
 				}
 				// encoder not supported or different serial numbers received
 				else {
@@ -1045,6 +1087,7 @@ void remove_transmitter_rf() {
 	kl_rx_stop(&kl_ctx); // stop keeloq rx
 }
 
+/*
 // clear corresponding memory depending on current operating mode
 void clear_all_memory() {
 	switch (op_mode) {
@@ -1069,6 +1112,7 @@ void clear_all_memory() {
 		break;
 	}
 }
+*/
 
 uint8_t prog_n_enroll_66bit_hcs200(struct KEELOQ_DECODE_PROG_PROFILE *prog_profile) {
 	// create HCS chip programming profile
@@ -1161,7 +1205,7 @@ void update_settings_to_eeprom() {
 	eeprom_write_block((uint16_t*)&emulator_tx_eeaddr, (uint8_t*)EEPROM_TX_EMULATOR_EEADDR, 2);
 
 	// say eeprom is valid
-	eeprom_write_byte((uint8_t *)EEPROM_MAGIC, 0xAA);
+	eeprom_write_byte((uint8_t *)EEPROM_MAGIC, EEPROM_MAGIC_VALUE);
 }
 
 void misc_hw_init() {
@@ -1385,6 +1429,13 @@ void delay_ms_(uint64_t ms) {
 	while(delay_milliseconds > 0);
 }
 
+// built-in delay wrapper
+void delay_builtin_ms_(uint16_t delay_ms) {
+	while(delay_ms--) {
+		_delay_ms(1);
+	}
+}
+
 //##############################
 // Interrupt: TIMER0 OVERFLOW //
 //##############################
@@ -1446,9 +1497,7 @@ ISR(PCINT0_vect, ISR_NOBLOCK)
 
 // Interrupt: pin change interrupt
 // FOR BUTTONS
-ISR(PCINT2_vect, ISR_NOBLOCK) { // this interrupt routine can be interrupted by any other, and MUST BE!
-	// in here we are relying on delay_ms_() which is actually an interrupt driven delay function, so ISR must be enabled past this point. we do that with ISR_NOBLOCK parameter above
-
+ISR(PCINT2_vect, ISR_NOBLOCK) { // this interrupt routine can be interrupted by any other, and MUST BE! - not anymore, since we are using built-in delay from now
 	PCICR &= ~_BV(PCIE2); 								// ..disable interrupts for the entire section
 
 	// check to see if button S0 is pressed
@@ -1457,7 +1506,7 @@ ISR(PCINT2_vect, ISR_NOBLOCK) { // this interrupt routine can be interrupted by 
 		// see if it wasn't pressed at all
 		if ( !(prev_btn & BTNS0_MASK) )
 		{
-			delay_ms_(25); // debounce
+			delay_builtin_ms_(25); // debounce
 			if( BTNS0_PINREG & _BV(BTNS0_PIN) )			// if it is still not GND after 25ms, this was an error
 			{
 				PCICR |= _BV(PCIE2); 					// ..re-enable interrupts for the entire section
@@ -1493,7 +1542,7 @@ ISR(PCINT2_vect, ISR_NOBLOCK) { // this interrupt routine can be interrupted by 
 		// see if it wasn't pressed at all
 		if ( !(prev_btn & BTNS1_MASK) )
 		{
-			delay_ms_(25); // debounce
+			delay_builtin_ms_(25); // debounce
 			if( BTNS1_PINREG & _BV(BTNS1_PIN) )			// if it is still not GND after 25ms, this was an error
 			{
 				PCICR |= _BV(PCIE2); 					// ..re-enable interrupts for the entire section
@@ -1530,7 +1579,7 @@ ISR(PCINT2_vect, ISR_NOBLOCK) { // this interrupt routine can be interrupted by 
 		// see if it wasn't pressed at all
 		if ( !(prev_btn & BTNS2_MASK) )
 		{
-			delay_ms_(25); // debounce
+			delay_builtin_ms_(25); // debounce
 			if( BTNS2_PINREG & _BV(BTNS2_PIN) )			// if it is still not GND after 25ms, this was an error
 			{
 				PCICR |= _BV(PCIE2); 					// ..re-enable interrupts for the entire section
@@ -1566,7 +1615,7 @@ ISR(PCINT2_vect, ISR_NOBLOCK) { // this interrupt routine can be interrupted by 
 		// see if it wasn't pressed at all
 		if ( !(prev_btn & BTNS3_MASK) )
 		{
-			delay_ms_(25); // debounce
+			delay_builtin_ms_(25); // debounce
 			if( BTNS3_PINREG & _BV(BTNS3_PIN) )			// if it is still not GND after 25ms, this was an error
 			{
 				PCICR |= _BV(PCIE2); 					// ..re-enable interrupts for the entire section

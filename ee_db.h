@@ -12,7 +12,7 @@
 #include <stdio.h>
 #include <util/delay.h>
 
-#define EEDB_FORMATTED_MAGIC		0xBEEFDEAD	// marker that says if memory has been formatted or not. changing this will re-format the eeprom memory upon booting
+#define EEDB_FORMATTED_MAGIC		0xDEADBEEF	// marker that says if memory has been formatted or not. changing this will re-format the eeprom memory upon booting
 #define EEDB_EEPROM_ADDR_SIZE		2			// 2 bytes for eeprom memory addressing
 #define EEDB_INVALID_ADDR			0xFFFF
 //#define EEDB_CACHE_SIZE			32			// how many addresses of records to cache

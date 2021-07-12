@@ -44,11 +44,11 @@
 #define EEPROM_MAGIC_VALUE			0xAA
 
 // Device options state
-#define OP_STATE_1		0	// Receiver module
-#define OP_STATE_2		1	// MITM upgrader
-#define OP_STATE_3		2	// Grab, collect
-#define OP_STATE_4		3	// Remote emulator from memory
-#define OP_STATE_LEN	4	// 4 options currently implemented
+#define OP_STATE_1		0b00000001	// Receiver module
+#define OP_STATE_2		0b00000010	// MITM upgrader
+#define OP_STATE_3		0b00000100	// Grab, collect
+#define OP_STATE_4		0b00001000	// Remote emulator from memory
+#define OP_STATE_LEN	4			// 4 options currently implemented
 
 // RF IN data pin
 #define	RX_PIN			2
@@ -122,8 +122,8 @@
 
 // Button related timers
 #define	BTN_HOLD_TMR						950		// miliseconds to pronounce button as held rather than pressed
-#define BTN_MODE_CHANGE_EXPECTER			5000	// ms to exit the mode-change.. mode
-#define BTN_MODE_CHANGE_CURR_REPORTER		1500	// ms, on every this much report current mode of operation
+#define BTN_MODE_CHANGE_EXPECTER			15000	// ms to exit the mode-change.. mode
+#define BTN_MODE_CHANGE_CURR_REPORTER		2000	// ms, on every this much report current mode of operation
 #define BTN_PROG_N_ENROLL_EXPECTER			20000	// ms to expect button press for programming the encoder IC
 #define BTN_REMOVE_REMOTE_EXPECTER			10000	// ms to expect remote reception via RF and to remove it
 #define BTN_ENROLL_FIRST_REMOTE_EXPECTER	10000	// ms to expect FIRST remote reception via RF and to enroll it
