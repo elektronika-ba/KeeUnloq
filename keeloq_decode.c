@@ -37,7 +37,8 @@ uint8_t keeloq_decode(uint8_t *kl_buff, uint8_t kl_buff_bit_size, uint64_t key, 
 		decoded->buttons_enc = (uint8_t)(encrypted >> 28) & 0x0F;
 
 		// discrimination, 12 bits
-		decoded->disc = (uint16_t)(encrypted >> 16) & 0x0FFF;
+		// be careful in the application because for HCS300, 301, 320 discrimination value is only 10 bits
+		decoded->discrimination = (uint16_t)(encrypted >> 16) & 0x0FFF;
 
 		// counter
 		decoded->counter = (uint16_t)(encrypted & 0xFFFF);
@@ -47,7 +48,7 @@ uint8_t keeloq_decode(uint8_t *kl_buff, uint8_t kl_buff_bit_size, uint64_t key, 
 	else {
 		// since no key is provided, it is probably HCS101 which has different format of this portion
 		decoded->counter = (uint16_t)(kl_buff[3] << 8) | kl_buff[2];
-		decoded->disc = 0; // no disc in this case
+		decoded->discrimination = 0; // no disc in this case
 		decoded->buttons_enc = (kl_buff[1] >> 4) & 0x0F;
 
 		// take serial3 also
@@ -102,7 +103,7 @@ void keeloq_encode(uint8_t encoder, struct KEELOQ_DECODE_PLAIN *decoded, uint64_
 			encrypted_section |= (uint32_t)decoded->serial << 16;
 		}
 		else {
-			encrypted_section |= (uint32_t)decoded->disc << 16;
+			encrypted_section |= (uint32_t)decoded->discrimination << 16;
 		}
 	
 		// add button states to 4 MSBs
@@ -175,11 +176,11 @@ void keeloq_decode_build_prog_stream(uint8_t *stream, struct KEELOQ_DECODE_PROG_
 	// they all start the same
 
 	// key (64bit / 8bytes) (LSb ... MSb)
-	memcpy(stream, (uint32_t *)&prog_profile->key, 8);
+	memcpy(stream, (uint32_t *)&prog_profile->crypt_key, 8);
 	stream += 8;
 	
 	// sync (16bit / 2bytes)
-	memcpy(stream, (uint16_t *)&prog_profile->sync, 2);
+	memcpy(stream, (uint16_t *)&prog_profile->counter, 2);
 	stream += 2;
 
 	// this is where they become different
@@ -199,7 +200,7 @@ void keeloq_decode_build_prog_stream(uint8_t *stream, struct KEELOQ_DECODE_PROG_
 		stream += 4;
 
 		// serial (32bit / 4bytes) ... only 24 LSB are used though
-		memcpy(stream, (uint32_t *)&prog_profile->ser, 4);
+		memcpy(stream, (uint32_t *)&prog_profile->serial, 4);
 		stream += 4;
 	}
 	// for others...
@@ -211,9 +212,9 @@ void keeloq_decode_build_prog_stream(uint8_t *stream, struct KEELOQ_DECODE_PROG_
 		stream++;
 
 		// serial (32bit / 4bytes) ... only 24 LSB are used though
-		memcpy(stream, (uint32_t *)&prog_profile->ser, 4);
+		memcpy(stream, (uint32_t *)&prog_profile->serial, 4);
 		stream += 4;
-	
+
 		// seed (32bit / 4 bytes)
 		memcpy(stream, (uint32_t *)&prog_profile->seed, 4);
 		stream += 4;
@@ -221,7 +222,7 @@ void keeloq_decode_build_prog_stream(uint8_t *stream, struct KEELOQ_DECODE_PROG_
 		// for HCS201 this is the discrimination word
 		if(prog_profile->encoder == ENCODER_HCS201) {
 			// disc (16bit / 2bytes)
-			memcpy(stream, (uint16_t *)&prog_profile->disc_hcs201, 2);
+			memcpy(stream, (uint16_t *)&prog_profile->discrimination, 2);
 			stream += 2;
 		}
 		// for others it is the RESERVED
@@ -234,12 +235,14 @@ void keeloq_decode_build_prog_stream(uint8_t *stream, struct KEELOQ_DECODE_PROG_
 	}
 	
 	// config word for all
+	// other than hc201 the discrimination information is in here
 	memcpy(stream, (uint16_t *)&prog_profile->config, 2);
 }
 
 // private
 
 // calculate CRC over an entire 65 bits
+// WARNING: UNTESTED CODE
 uint8_t keeloq_decode_calc_crc(uint8_t *kl_buff) {
 	uint8_t crc1 = 0;
 	uint8_t crc0 = 0;

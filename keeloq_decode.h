@@ -104,7 +104,7 @@ struct KEELOQ_DECODE_PLAIN {
 
 	// from encrypted portion (but unencrypted)
 	uint8_t buttons_enc; // this is used only for decoding purposes. encoding uses "buttons"
-	uint16_t disc; // 12 lower bits used out of which 2 upper bits might be OVR bits for some encoders
+	uint16_t discrimination; // 12 lower bits used out of which 2 upper bits might be OVR bits for some encoders (HCS300,301,320)
 	uint16_t counter;
 };
 
@@ -112,13 +112,13 @@ struct KEELOQ_DECODE_PLAIN {
 struct KEELOQ_DECODE_PROG_PROFILE {
 	uint8_t encoder; // for which encoder is this profile. this is used when building the 192 bits of programming stream (to know how to build it for each encoder)
 
-	uint64_t key;
-	uint16_t sync;
-	uint32_t ser;
+	uint64_t crypt_key;
+	uint16_t counter;
+	uint32_t serial;
 	uint32_t seed;
 	uint16_t seed2; // only for HCS360 and 361
 	uint16_t config;
-	uint16_t disc_hcs201; // only for HCS201
+	uint16_t discrimination;
 };
 
 // public

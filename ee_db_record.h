@@ -17,13 +17,13 @@
 // warning: do not re-arrange elements of this struct because it must match that in the EEPROM
 struct eedb_hcs_record {
 	uint8_t encoder;
-	uint32_t serialno;
+	uint32_t serial;
 	uint64_t crypt_key;
 	uint16_t counter;
 	uint16_t counter_resync;
-	uint16_t discriminator;
+	uint16_t discrimination;
 
-	uint16_t serial3no; // used for HCS101 only
+	uint16_t serial3; // used for HCS101 only
 	
 	// used for re-transmission and sniffing
 	uint8_t buttons;
