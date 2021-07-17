@@ -202,11 +202,12 @@
 // misc stuff
 uint8_t next_within_window(uint16_t, uint16_t, uint16_t);
 void clear_pending_buttons();
-uint8_t check_remote_prog_entry();
+uint8_t handle_ui_buttons();
 void misc_hw_init();
 void set_mode(uint8_t, uint8_t);
 void update_settings_to_eeprom();
 void delay_ms_(uint64_t);
+void show_number_on_leds(uint16_t);
 
 uint8_t event_keydown(struct KEELOQ_DECODE_PLAIN *, struct eedb_record_header *, struct eedb_hcs_record *, uint8_t *);
 void event_keyup(struct KEELOQ_DECODE_PLAIN *, struct eedb_record_header *, struct eedb_hcs_record *);

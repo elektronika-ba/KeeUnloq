@@ -59,6 +59,7 @@ struct keeloq_ctx {
 	uint16_t kl_rx_timing_element_max;
 	uint8_t kl_rx_guard_timer;
 	uint8_t kl_rx_buff_bit_index;
+	uint8_t _kl_rx_buff_bit_index; // internal usage
 	uint8_t _kl_rx_buff[KL_BUFF_LEN]; // internal buffer for actual receiving
 
 	enum KL_RF_ACT kl_rx_rf_act; // rf activity

@@ -157,15 +157,16 @@ void kl_rx_pulse_timeout(volatile struct keeloq_ctx *ctx) {
 	// we could have the 66, 67 or 69 bits received
 	else if(ctx->kl_rx_state == KL_RX_RXING) {
 		if(
-			ctx->kl_rx_buff_bit_index == 69
+			ctx->_kl_rx_buff_bit_index == 69
 			||
-			ctx->kl_rx_buff_bit_index == 67
+			ctx->_kl_rx_buff_bit_index == 67
 			||
-			ctx->kl_rx_buff_bit_index == 66
+			ctx->_kl_rx_buff_bit_index == 66
 		) {
 			// buffer empty? fill it in
 			if(ctx->kl_rx_buff_state == KL_BUFF_EMPTY) {
 				ctx->kl_rx_buff_state = KL_BUFF_FULL; // we are still not sure if transmitter stopped transmitting
+				ctx->kl_rx_buff_bit_index = ctx->_kl_rx_buff_bit_index;
 				memcpy((uint8_t *)ctx->kl_rx_buff, (uint8_t *)ctx->_kl_rx_buff, KL_BUFF_LEN);
 			}
 			
@@ -214,14 +215,14 @@ void kl_rx_start(volatile struct keeloq_ctx *ctx) {
 
 // keeloq stopping timer and pin-change ISR
 void kl_rx_stop(volatile struct keeloq_ctx *ctx) {
+	// WARNING: this is where hardware abstraction is not possible
+	TIMSK1 &= ~_BV(ICIE1);
+	TCCR1B = 0; // stop the Timer1
+
 	ctx->fn_rx_deinit_hw();
 
 	ctx->kl_rx_state = KL_RX_STOP;
 	ctx->kl_rx_rf_act = KL_RF_ACT_IDLE;
-
-	// WARNING: this is where hardware abstraction is not possible
-	TIMSK1 &= ~_BV(ICIE1);
-	TCCR1B = 0; // stop the Timer1
 }
 
 // called after consuming the buffer
@@ -254,7 +255,7 @@ void kl_rx_process(volatile struct keeloq_ctx *ctx, uint8_t bit_val) {
 			if(!bit_val) {
 				ICR1 = KL_HEADER_MAX_WIDTH_US * 2; // convert to 0.5us steps
 
-				ctx->kl_rx_buff_bit_index = 0;
+				ctx->_kl_rx_buff_bit_index = 0;
 				ctx->kl_rx_state = KL_RX_HEADERCHECK;
 			}
 		break;
@@ -291,7 +292,7 @@ void kl_rx_process(volatile struct keeloq_ctx *ctx, uint8_t bit_val) {
 			// transition from 1->0
 			if(!bit_val) {
 				// we received more bits that we are capable of storing in memory? reject!
-				if(ctx->kl_rx_buff_bit_index > (KL_BUFF_LEN * 8) - 1) {
+				if(ctx->_kl_rx_buff_bit_index > (KL_BUFF_LEN * 8) - 1) {
 					ctx->kl_rx_state = KL_RX_SYNCING;
 					ctx->kl_rx_process_busy = 0;
 					return;
@@ -308,8 +309,8 @@ void kl_rx_process(volatile struct keeloq_ctx *ctx, uint8_t bit_val) {
 					ctx->kl_rx_timing_element = w1us; // remember, if we need it elsewhere
 
 					// add decoded bit into our kl_buff array
-					uint8_t arr_index = ctx->kl_rx_buff_bit_index / 8;
-					uint8_t arr_bit_index = ctx->kl_rx_buff_bit_index % 8;
+					uint8_t arr_index = ctx->_kl_rx_buff_bit_index / 8;
+					uint8_t arr_bit_index = ctx->_kl_rx_buff_bit_index % 8;
 					ctx->_kl_rx_buff[arr_index] |= (0x01 << arr_bit_index);
 				}
 				// 0 (2 x TE(high))
@@ -320,7 +321,7 @@ void kl_rx_process(volatile struct keeloq_ctx *ctx, uint8_t bit_val) {
 				// invalid bit length - reject everything
 				else {
 					/*char tmp[64];
-					sprintf(tmp, "E(%u), RX=%u, TE=%u, MIN=%u, MAX=%u\r\n", ctx->kl_rx_buff_bit_index, w1us, ctx->kl_rx_timing_element, ctx->kl_rx_timing_element_min, ctx->kl_rx_timing_element_max);
+					sprintf(tmp, "E(%u), RX=%u, TE=%u, MIN=%u, MAX=%u\r\n", ctx->_kl_rx_buff_bit_index, w1us, ctx->kl_rx_timing_element, ctx->kl_rx_timing_element_min, ctx->kl_rx_timing_element_max);
 					uart_puts(tmp);*/
 					
 					ctx->kl_rx_state = KL_RX_SYNCING;
@@ -333,7 +334,7 @@ void kl_rx_process(volatile struct keeloq_ctx *ctx, uint8_t bit_val) {
 				// actually, after the ~ > 4xTE has passed without receiving a next positive pulse should do the trick
 				// ICR1 is already set for that interval so we are good
 			
-				ctx->kl_rx_buff_bit_index++;
+				ctx->_kl_rx_buff_bit_index++;
 			}
 			// transition from 0->1
 			else {

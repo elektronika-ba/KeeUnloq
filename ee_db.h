@@ -77,6 +77,7 @@ void eedb_format_memory(volatile struct eedb_ctx *);
 void eedb_read_record_by_eeaddr(volatile struct eedb_ctx *, uint16_t, struct eedb_record_header *, void *);
 void eedb_write_record_by_eeaddr(volatile struct eedb_ctx *, uint16_t, struct eedb_record_header *, void *);
 uint16_t eedb_find_free_record_eeaddr(volatile struct eedb_ctx *);
+uint16_t eedb_count_records(volatile struct eedb_ctx *, uint32_t, uint32_t);
 
 uint16_t eedb_find_record_eeaddr(volatile struct eedb_ctx *, uint32_t, uint32_t, uint16_t);
 // INSERT

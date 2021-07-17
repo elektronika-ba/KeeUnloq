@@ -51,6 +51,7 @@ volatile struct keeloq_ctx kl_ctx;
 volatile uint8_t option_state; // device options state 
 volatile uint16_t last_grabbed_eeaddr = EEDB_INVALID_ADDR;
 volatile uint16_t emulator_tx_eeaddr; // which one from memory is selected for tx emulation
+volatile uint16_t runtime_grabbed_cnt = 0; // how many new remotes have been collected from previous system (re)start
 
 void foreach_hcs_loglog_record_callback(volatile struct eedb_ctx *ctx, struct eedb_record_header *header, void *record) {
 	uart_puts("    foreach_hcs_loglog_record_callback()\r\n");
@@ -313,16 +314,14 @@ int main(void)
 	sprintf(tmp, "EMULATOR TX EEADDR: 0x%04X\r\n", emulator_tx_eeaddr);
 	uart_puts(tmp);
 	#endif
-	
+
 	uart_puts("RESUME>\r\nEND>\r\n");
 
-	/*
 	// start KeeLoq decoder if not in remote transmitter emulator
-	if (op_mode != OP_MODE_4) {
+	if (!(option_state & OP_STATE_4)) {
 		kl_rx_stop(&kl_ctx);
 		kl_rx_start(&kl_ctx); // start the keeloq rx
 	}
-	*/
 
 	// for looping and processing
 	uint8_t processed = 0;
@@ -336,25 +335,25 @@ int main(void)
 	while(1)
 	{
 		/*
-		// in op-modes 1 & 2 expect buttons for programming
-		// programming also de-initializes KeeLoq decoder library so we need to re-init it here
-		if(op_mode == OP_MODE_1 || op_mode == OP_MODE_2) {
-			uint8_t need_to_reinit_kl_rx = check_remote_prog_entry();
-
-			// re-start KeeLoq decoder because there was some programming done and hardware *might need* to be re-initialized
-			if(need_to_reinit_kl_rx) {
-				need_to_reinit_kl_rx = 0;
-
-				kl_rx_stop(&kl_ctx);
-				kl_rx_start(&kl_ctx); // start the keeloq rx
-			}
-		}
-		
-		// in op-mode 4 expect buttons for transmitting and for changing the remote controller "bank"
-		if (op_mode == OP_MODE_4) {
-			//check_tx_emulator_buttons();
-		}
+		1.	Option 1: Receiver module with memory of up to 1000 remote transmitters
+		2.	Option 2: MITM upgrader for upgrading third-party systems (insecure garage door openers)
+		3.	Option 3: Data collector with memory of up to 200 remote transmitters and 500 transmissions
+		4.	Option 4: Transmitter emulator
 		*/
+		
+		// when in tx emulation mode, buttons are used for starting rf transmittion
+		if (option_state & OP_STATE_4) {
+			//check_tx_emulator_buttons();
+			continue; // don't do anything else in this mode
+		}
+
+		// check buttons for various stuff
+		uint8_t need_to_reinit_kl_rx = handle_ui_buttons();
+		// re-start KeeLoq decoder because there was some programming done and hardware *might need* to be re-initialized
+		if(need_to_reinit_kl_rx) {
+			kl_rx_stop(&kl_ctx);
+			kl_rx_start(&kl_ctx); // start the keeloq rx
+		}
 
 		char tmp[64];
 
@@ -696,22 +695,22 @@ void clear_pending_buttons() {
 	btn_press = 0;
 }
 
-uint8_t check_remote_prog_entry() {
+uint8_t handle_ui_buttons() {
 	uint8_t was_prog_at_all = 0;
-	
+
 	// Program & learn (S0 hold)
 	if(btn_hold & BTNS0_MASK) {
 		clear_pending_buttons(); // clear any pending button press or hold
 		
 		ledb_on();
 
-		uint8_t was_prog, prog_result;
+		uint8_t prog_result;
 		struct KEELOQ_DECODE_PROG_PROFILE prog_profile;
 
-		// within next 15 seconds, expect buttons S0-S2 to be pressed in order to program&enrol HCS encoder IC
+		// within next 15 seconds, expect buttons to be pressed in order to program&enrol HCS encoder IC
 		btn_expect_timer = BTN_PROG_N_ENROLL_EXPECTER;
 		while(btn_expect_timer) {
-			was_prog = 0;
+			uint8_t was_prog = 0;
 			
 			// S0
 			if(btn_press & BTNS0_MASK) {
@@ -764,7 +763,7 @@ uint8_t check_remote_prog_entry() {
 				was_prog = 0;
 			}
 		}
-		
+
 		ledb_off();
 		clear_pending_buttons(); // clear any pending button press or hold
 	}
@@ -772,29 +771,19 @@ uint8_t check_remote_prog_entry() {
 	// Learn from RF (S1 hold)
 	if(btn_hold & BTNS1_MASK) {
 		clear_pending_buttons(); // clear any pending button press or hold
-		
-		enroll_transmitter_rf();
-				
-		clear_pending_buttons(); // clear any pending button press or hold
 
-		was_prog_at_all = 1;
+		enroll_transmitter_rf();
+
+		clear_pending_buttons(); // clear any pending button press or hold
 	}
 	
 	// Remove single transmitter from memory (S2 hold)
 	if(btn_hold & BTNS2_MASK) {
 		clear_pending_buttons(); // clear any pending button press or hold
-		
-		// blink LED B during entire process
-		led_isrblink(ISR_LED_B_MASK, ISR_LED_BLINK_FAST_MS);
 
 		remove_transmitter_rf();
 
-		// done. turn blinker off and also LED if it remained ON
-		led_isrblink(ISR_LED_B_MASK, 0);
-		ledb_off();
 		clear_pending_buttons(); // clear any pending button press or hold
-		
-		was_prog_at_all = 1;
 	}
 	
 	// Clear all memory (S3 hold)
@@ -826,8 +815,76 @@ uint8_t check_remote_prog_entry() {
 		leda_off();
 		clear_pending_buttons(); // clear any pending button press or hold
 	}
+
+	// Show main memory count (S0 press)
+	if(btn_press & BTNS0_MASK) {
+		clear_pending_buttons(); // clear any pending button press or hold
+
+		if((option_state & OP_STATE_1) || (option_state & OP_STATE_2)) {
+			uint16_t mem_count = eedb_count_records(&eedb_hcsdb, EEDB_PKFK_ANY, EEDB_PKFK_ANY);
+			show_number_on_leds(mem_count);
+		}
+	}
+	
+	// Show entire grabbed devices memory count (S1 press)
+	if(btn_press & BTNS1_MASK) {
+		clear_pending_buttons(); // clear any pending button press or hold
+
+		if(option_state & OP_STATE_3) {
+			uint16_t mem_count = eedb_count_records(&eedb_hcslogdevices, EEDB_PKFK_ANY, EEDB_PKFK_ANY);
+			show_number_on_leds(mem_count);
+		}
+	}
+	
+	// Show grabbed devices count from last re-start (S2 press)
+	if(btn_press & BTNS2_MASK) {
+		clear_pending_buttons(); // clear any pending button press or hold
+
+		if(option_state & OP_STATE_3) {
+			show_number_on_leds(runtime_grabbed_cnt);
+			runtime_grabbed_cnt = 0; // from 0 again
+		}
+
+	}
 	
 	return was_prog_at_all;
+}
+
+void show_number_on_leds(uint16_t count) {
+	// e.g. 1234
+	
+	// 0 = ALL BLINK ONCE
+	if(count == 0) {
+		leda_on();
+		ledb_on();
+		ledc_on();
+		delay_ms_(150);
+		leda_off();
+		ledb_off();
+		ledc_off();
+		delay_ms_(500);
+	}
+	else {
+		uint8_t tmp;
+
+		tmp = count / 100;
+		if(tmp) {
+			leda_blink(tmp);			// 1234 / 1000 => BLINK = 12x
+			delay_ms_(500);
+		}
+
+		tmp = (count % 100) / 10;
+		if(tmp) {
+			ledb_blink(tmp);		// 34 / 10 => BLINK = 3x
+			delay_ms_(500);
+		}
+
+		tmp = (count % 100) % 10;
+		if(tmp) {
+			ledc_blink(tmp);		// 34 % 10 => BLINK = 4x
+			delay_ms_(500);
+		}
+	}
 }
 
 void enroll_transmitter_rf() {
@@ -839,6 +896,10 @@ void enroll_transmitter_rf() {
 	uint8_t first_rx_kl_buff[KL_BUFF_LEN];
 
 	ledb_on();
+
+	// debug
+	char tmp[128];
+	uart_puts("Waiting first TX...\r\n");
 
 	struct KEELOQ_DECODE_PLAIN *decoded;
 	struct KEELOQ_DECODE_PLAIN decoded_rolling1;
@@ -878,6 +939,10 @@ void enroll_transmitter_rf() {
 
 				uint8_t encoder = ENCODER_INVALID;
 
+				// debug na uart
+				sprintf(tmp, "SER 1: %lu, SER 2: %lu\r\n", decoded_rolling1.serial, decoded_rolling2.serial);
+				uart_puts(tmp);
+
 				// make sure someone isn't using two remotes during this process
 				// serial numbers match -> continue
 				if(decoded_rolling1.serial == decoded_rolling2.serial) {
@@ -893,6 +958,8 @@ void enroll_transmitter_rf() {
 						&& next_within_window(decoded_rolling2.counter, decoded_rolling1.counter, 5)
 						) {
 						// it is one of the encrypted ones, lets figure out which one
+						
+						uart_puts("ENCRYTPTED TYPE\r\n");
 
 						// if 66 bit:
 						//		we can assume it is hcs200...
@@ -924,6 +991,8 @@ void enroll_transmitter_rf() {
 						keeloq_decode(first_rx_kl_buff, kl_ctx.kl_rx_buff_bit_index, 0, &decoded_fixed1);
 						struct KEELOQ_DECODE_PLAIN decoded_fixed2;
 						keeloq_decode((uint8_t*)kl_ctx.kl_rx_buff, kl_ctx.kl_rx_buff_bit_index, 0, &decoded_fixed2);
+						
+						uart_puts("Decrypt failed, fixed code?\r\n");
 
 						// HCS101 also increases its counter value so we can apply the same logic here
 						if (
@@ -933,8 +1002,20 @@ void enroll_transmitter_rf() {
 							) {
 							encoder = ENCODER_HCS101;
 							decoded = &decoded_fixed1;
+							
+							uart_puts("HCS101\r\n");
+						}
+						else {
+							uart_puts("UNCLASSIFIED\r\n");
 						}
 					}
+					else {
+						sprintf(tmp, "WTF: %d\r\n", kl_ctx.kl_rx_buff_bit_index);
+						uart_puts(tmp);
+					}
+				}
+				else {
+					uart_puts("SERIALS DONT MATCH\r\n");
 				}
 
 				// encoder classified? let's save it into eeprom memorajz
@@ -967,16 +1048,22 @@ void enroll_transmitter_rf() {
 					// MODE: KeeLoq standard receiver
 					// MODE: MITM Upgrader
 					else {
+						*/
 						// already exists in memory?
 						uint16_t eeaddr = eedb_find_record_eeaddr(&eedb_hcsdb, decoded->serial, 0, 0);
 
 						// it is found in database, cancel programming
 						if (eeaddr != EEDB_INVALID_ADDR) {
+							uart_puts("EXISTING DEVICE, IGNORING.\r\n");
+							
 							delay_ms_(500);
 							leda_blink(2); // report error
 						}
 						// store to eeprom
 						else {
+							sprintf(tmp, "PROCESSED AS DEVICE: %u!\r\n", encoder);
+							uart_puts(tmp);
+
 							// save to database
 							eedb_insert_record(&eedb_hcsdb, record.serialno, 0, &record);
 
@@ -987,7 +1074,12 @@ void enroll_transmitter_rf() {
 							else {
 								ledc_blink(2); // report OK - successfully decryption
 							}
+							
+							sprintf(tmp, "[%lu] (%u) {%u}\r\n", decoded->serial, decoded->counter, decoded->disc);
+							uart_puts(tmp);
+
 						}
+						/*
 					}
 					*/
 				}
@@ -1006,6 +1098,8 @@ void enroll_transmitter_rf() {
 				first_rx_done = 1;
 				led_isrblink(ISR_LED_B_MASK, ISR_LED_BLINK_XFAST_MS); // indicate first reception by blinking it
 				action_expecter_timer = BTN_ENROLL_SECOND_REMOTE_EXPECTER; // reload to expect next transmission
+				
+				uart_puts("RX 1 OK, waiting 2...\r\n");
 			}
 			
 			kl_rx_start(&kl_ctx); // re-start the keeloq rx
@@ -1016,8 +1110,11 @@ void enroll_transmitter_rf() {
 	ledb_off();
 	
 	kl_rx_stop(&kl_ctx); // stop keeloq rx
+	
+	uart_puts("Exit prog.\r\n");
 }
 
+// this looks stupid
 uint8_t next_within_window(uint16_t next, uint16_t baseline, uint16_t window) {
 	// no overflow of window
 	if(baseline + window > baseline) {
@@ -1045,6 +1142,9 @@ uint8_t next_within_window(uint16_t next, uint16_t baseline, uint16_t window) {
 void remove_transmitter_rf() {
 	kl_rx_stop(&kl_ctx);
 	kl_rx_start(&kl_ctx); // start the keeloq rx
+
+	// blink LED B during entire process
+	led_isrblink(ISR_LED_B_MASK, ISR_LED_BLINK_FAST_MS);
 
 	// 10 seconds window for receive -> match -> delete
 	action_expecter_timer = BTN_REMOVE_REMOTE_EXPECTER;
@@ -1084,35 +1184,33 @@ void remove_transmitter_rf() {
 		}
 	}
 
+	// done. turn blinker off and also LED if it remained ON
+	led_isrblink(ISR_LED_B_MASK, 0);
+	ledb_off();
+
 	kl_rx_stop(&kl_ctx); // stop keeloq rx
 }
 
-/*
 // clear corresponding memory depending on current operating mode
 void clear_all_memory() {
-	switch (op_mode) {
-		// MODE: KeeLoq standard receiver
-		case OP_MODE_1:
-			// delete only memorised HCS devices that can operate us
-			eedb_format_memory(&eedb_hcsdb);
-		break;
-		// MODE: MITM Upgrader
-		case OP_MODE_2:
-			// delete only MITM emulation device
-			eedb_format_memory(&eedb_hcsmitm);
-		break;
-		// Grabber/logger
-		case OP_MODE_3:
-			eedb_format_memory(&eedb_hcslogdevices);
-			eedb_format_memory(&eedb_hcsloglogs);
-		break;
-		
-		case OP_MODE_4:
-			// todo?
-		break;
+	// KeeLoq standard receiver
+	if(option_state & OP_STATE_1) {
+		// delete only memorised HCS devices that can operate us
+		eedb_format_memory(&eedb_hcsdb);
+	}
+	
+	// MITM Upgrader
+	if(option_state & OP_STATE_2) {
+		// delete only MITM emulation device
+		eedb_format_memory(&eedb_hcsmitm);
+	}
+	
+	// Grabber/logger
+	if(option_state & OP_STATE_3) {
+		eedb_format_memory(&eedb_hcslogdevices);
+		eedb_format_memory(&eedb_hcsloglogs);
 	}
 }
-*/
 
 uint8_t prog_n_enroll_66bit_hcs200(struct KEELOQ_DECODE_PROG_PROFILE *prog_profile) {
 	// create HCS chip programming profile
@@ -1266,9 +1364,9 @@ void leda_off() {
 void leda_blink(uint8_t times) {
 	while(times--) {
 		setHigh(LEDA_PORT, LEDA_PIN);
-		delay_ms_(200);
+		delay_ms_(100);
 		setLow(LEDA_PORT, LEDA_PIN);
-		delay_ms_(200);
+		delay_ms_(350);
 	}
 }
 void ledb_on() {
@@ -1280,9 +1378,9 @@ void ledb_off() {
 void ledb_blink(uint8_t times) {
 	while(times--) {
 		setHigh(LEDB_PORT, LEDB_PIN);
-		delay_ms_(200);
+		delay_ms_(100);
 		setLow(LEDB_PORT, LEDB_PIN);
-		delay_ms_(200);
+		delay_ms_(350);
 	}
 }
 void ledc_on() {
@@ -1294,9 +1392,9 @@ void ledc_off() {
 void ledc_blink(uint8_t times) {
 	while(times--) {
 		setHigh(LEDC_PORT, LEDC_PIN);
-		delay_ms_(200);
+		delay_ms_(100);
 		setLow(LEDC_PORT, LEDC_PIN);
-		delay_ms_(200);
+		delay_ms_(350);
 	}
 }
 

@@ -286,6 +286,29 @@ uint16_t eedb_for_each_record(volatile struct eedb_ctx *ctx, uint32_t pk, uint32
 	return processed_count;
 }
 
+// select count(*) - records matching provided pk & fk, not deleted ones
+uint16_t eedb_count_records(volatile struct eedb_ctx *ctx, uint32_t pk, uint32_t fk) {
+	uint16_t mem_count = 0;
+	uint16_t eeaddr = 0;
+	
+	while(1) {
+		eeaddr = eedb_find_record_eeaddr(ctx, pk, fk, eeaddr);
+
+		// done?
+		if(eeaddr == EEDB_INVALID_ADDR) {
+			break;
+		}
+
+		struct eedb_record_header header;
+		eedb_read_record_by_eeaddr(ctx, eeaddr, &header, 0);
+		if(!header.deleted) {
+			mem_count++;	
+		}
+	}
+
+	return mem_count;
+}
+
 /*
 // DEBUG
 void eedb_print_headers(volatile struct eedb_ctx *ctx) {
