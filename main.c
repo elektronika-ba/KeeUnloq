@@ -40,6 +40,7 @@ volatile struct eedb_ctx eedb_hcsmitm;
 volatile struct eedb_ctx eedb_hcsdb;
 volatile struct eedb_ctx eedb_hcslogdevices;
 volatile struct eedb_ctx eedb_hcsloglogs;
+volatile struct eedb_ctx eedb_hcstx;
 
 // misc
 volatile uint16_t action_expecter_timer = 0;
@@ -49,8 +50,7 @@ volatile struct keeloq_ctx kl_ctx;
 
 // misc working variables
 volatile uint8_t option_state; // device options state 
-volatile uint16_t last_grabbed_eeaddr = EEDB_INVALID_ADDR;
-volatile uint16_t emulator_tx_eeaddr; // which one from memory is selected for tx emulation
+volatile uint16_t last_grabbed_eeaddr = EEDB_INVALID_ADDR; // convenient for re-transmitting last collected device :)
 volatile uint16_t runtime_grabbed_cnt = 0; // how many new remotes have been collected from previous system (re)start
 
 void foreach_hcs_loglog_record_callback(volatile struct eedb_ctx *ctx, struct eedb_record_header *header, void *record) {
@@ -120,6 +120,10 @@ int main(void)
 	kl_ctx.fn_tx_pin_hw = &keeloq_pin_tx_hw;
 	// init it
 	kl_init_ctx(&kl_ctx);
+
+	#ifdef DEBUG
+	char tmp[128];
+	#endif
 	
 	// read settings from internal EEPROM
 	// eeprom has some settings?
@@ -130,7 +134,6 @@ int main(void)
 		
 		option_state = eeprom_read_byte((uint8_t *)EEPROM_OPTION_STATES);
 		eeprom_read_block((uint64_t *)&master_crypt_key, (uint8_t *)EEPROM_MASTER_CRYPT_KEY, 8);
-		eeprom_read_block((uint16_t *)&emulator_tx_eeaddr, (uint8_t *)EEPROM_TX_EMULATOR_EEADDR, 2);
 
 		// todo: ostalo...
 	}
@@ -142,7 +145,6 @@ int main(void)
 		
 		option_state = OP_STATE_1; // only normal receiver enabled by default
 		master_crypt_key = 0xB00B1E5B00B1E500; // some random value for development
-		emulator_tx_eeaddr = EEDB_INVALID_ADDR;
 
 		// todo: ostalo...
 		
@@ -164,10 +166,14 @@ int main(void)
 	eedb_hcsmitm.fn_i2c_rx_nack = &twi_rx_nack;
 	eedb_hcsmitm.fn_i2c_tx = &twi_tx_byte;
 	eedb_init_ctx(&eedb_hcsmitm);
+	#ifdef DEBUG
+	sprintf(tmp, "eedb_hcsmitm allocated %u bytes\r\n", eedb_hcsmitm._allocated_bytes_eeaddr);
+	uart_puts(tmp);	
+	#endif
 
 	// TABLE: HCS device identities
 	eedb_hcsdb.start_eeaddr = eedb_hcsmitm._next_free_eeaddr; // start where previous table ended
-	eedb_hcsdb.record_capacity = 500;
+	eedb_hcsdb.record_capacity = 1000;
 	eedb_hcsdb.sizeof_record_entry = sizeof(struct eedb_hcs_record);
 	eedb_hcsdb.i2c_addr = 0b10100000;
 	eedb_hcsdb.fn_i2c_start = &twi_start;
@@ -176,10 +182,14 @@ int main(void)
 	eedb_hcsdb.fn_i2c_rx_nack = &twi_rx_nack;
 	eedb_hcsdb.fn_i2c_tx = &twi_tx_byte;
 	eedb_init_ctx(&eedb_hcsdb);
+	#ifdef DEBUG
+	sprintf(tmp, "eedb_hcsdb allocated %u bytes\r\n", eedb_hcsdb._allocated_bytes_eeaddr);
+	uart_puts(tmp);
+	#endif
 
 	// TABLE: HCS sniffing log HCS devices
 	eedb_hcslogdevices.start_eeaddr = eedb_hcsdb._next_free_eeaddr; // start where previous table ended
-	eedb_hcslogdevices.record_capacity = 150;
+	eedb_hcslogdevices.record_capacity = 500;
 	eedb_hcslogdevices.sizeof_record_entry = sizeof(struct eedb_hcs_record);
 	eedb_hcslogdevices.i2c_addr = 0b10100000;
 	eedb_hcslogdevices.fn_i2c_start = &twi_start;
@@ -188,6 +198,10 @@ int main(void)
 	eedb_hcslogdevices.fn_i2c_rx_nack = &twi_rx_nack;
 	eedb_hcslogdevices.fn_i2c_tx = &twi_tx_byte;
 	eedb_init_ctx(&eedb_hcslogdevices);
+	#ifdef DEBUG
+	sprintf(tmp, "eedb_hcslogdevices allocated %u bytes\r\n", eedb_hcslogdevices._allocated_bytes_eeaddr);
+	uart_puts(tmp);
+	#endif
 
 	// TABLE: HCS sniffing log HCS devices LOGs
 	// THIS IS A CHILD TABLE OF "eedb_hcslogdevices"
@@ -201,6 +215,26 @@ int main(void)
 	eedb_hcsloglogs.fn_i2c_rx_nack = &twi_rx_nack;
 	eedb_hcsloglogs.fn_i2c_tx = &twi_tx_byte;
 	eedb_init_ctx(&eedb_hcsloglogs);
+	#ifdef DEBUG
+	sprintf(tmp, "eedb_hcsloglogs allocated %u bytes\r\n", eedb_hcsloglogs._allocated_bytes_eeaddr);
+	uart_puts(tmp);
+	#endif
+	
+	// TABLE: HCS transmitter/tx emulator device
+	eedb_hcstx.start_eeaddr = eedb_hcsloglogs._next_free_eeaddr; // start where previous table ended
+	eedb_hcstx.record_capacity = 1;
+	eedb_hcstx.sizeof_record_entry = sizeof(struct eedb_hcs_record);
+	eedb_hcstx.i2c_addr = 0b10100000;
+	eedb_hcstx.fn_i2c_start = &twi_start;
+	eedb_hcstx.fn_i2c_stop = &twi_stop;
+	eedb_hcstx.fn_i2c_rx_ack = &twi_rx_ack;
+	eedb_hcstx.fn_i2c_rx_nack = &twi_rx_nack;
+	eedb_hcstx.fn_i2c_tx = &twi_tx_byte;
+	eedb_init_ctx(&eedb_hcstx);
+	#ifdef DEBUG
+	sprintf(tmp, "eedb_hcstx allocated %u bytes\r\n", eedb_hcstx._allocated_bytes_eeaddr);
+	uart_puts(tmp);
+	#endif
 
 	ledb_off();
 
@@ -308,10 +342,7 @@ int main(void)
 	uart_puts("Option 4: ");
 	if (option_state & OP_STATE_4) uart_puts("ON.\r\n");
 	else uart_puts("OFF.\r\n");
-	char tmp[128];
 	sprintf(tmp, "CRYPT KEY: 0x%04X%04X%04X%04X\r\n", (uint16_t)(master_crypt_key >> 48), (uint16_t)(master_crypt_key >> 32), (uint16_t)(master_crypt_key >> 16), (uint16_t)master_crypt_key);
-	uart_puts(tmp);
-	sprintf(tmp, "EMULATOR TX EEADDR: 0x%04X\r\n", emulator_tx_eeaddr);
 	uart_puts(tmp);
 	#endif
 
@@ -343,8 +374,8 @@ int main(void)
 		
 		// when in tx emulation mode, buttons are used for starting rf transmittion
 		if (option_state & OP_STATE_4) {
-			//check_tx_emulator_buttons();
-			continue; // don't do anything else in this mode
+			handle_tx_emulator_buttons();
+			continue; // don't do anything further while in this mode
 		}
 
 		// check buttons for various stuff
@@ -355,50 +386,51 @@ int main(void)
 			kl_rx_start(&kl_ctx); // start the keeloq rx
 		}
 
-		char tmp[64];
-
 		// turn LED A on while button is being pressed on a remote
 		if(kl_ctx.kl_rx_rf_act == KL_RF_ACT_BUSY) {
 			leda_on();			
 		}
 
-		/*
 		// KeeLoq library received something
 		if (kl_ctx.kl_rx_buff_state == KL_BUFF_FULL) {
 			// perform processing, just once
 			if (!processed) {
 				processed = 1;
-				
-				sprintf(tmp, "Header length: [%u] us\r\n", kl_ctx.kl_rx_header_length);
+
+				/*sprintf(tmp, "Header length: [%u] us\r\n", kl_ctx.kl_rx_header_length);
 				uart_puts(tmp);
 				sprintf(tmp, "Timing element: [%u] us\r\n", kl_ctx.kl_rx_timing_element);
-				uart_puts(tmp);
+				uart_puts(tmp);*/
 
 				memset(&decoded, 0, sizeof(struct KEELOQ_DECODE_PLAIN));
 				memset(&header, 0, sizeof(struct eedb_record_header));
 				memset(&record, 0, sizeof(struct eedb_hcs_record));
 
+				#ifdef DEBUG
 				uart_puts("RX!\r\n");
+				#endif
 
 				decode_ok = keeloq_decode((uint8_t *)kl_ctx.kl_rx_buff, kl_ctx.kl_rx_buff_bit_index, 0, &decoded);
 				// decoding is OK?
 				if (decode_ok) {
-					uart_puts("DECODE OK\r\n");
-
+					#ifdef DEBUG
 					sprintf(tmp, "SERIAL: %lu\r\n", decoded.serial);
 					uart_puts(tmp);
+					#endif
 					
-					verify_ok = event_keydown(&decoded, &header, &record, (uint8_t *)kl_ctx.kl_rx_buff);
+					verify_ok = event_keydown(&decoded, &header, &record, (uint8_t *)kl_ctx.kl_rx_buff, 0);
 				}
 				else {
+					#ifdef DEBUG
 					uart_puts("DECODE ERROR\r\n");
+					#endif
 				}
 			}
-			// each other time if it is still presed, call it again but with a flag
+			// each other time if it is still pressed, call it again but with a flag
 			else if (processed) {
 				// decoding & verified was OK? just PROCESS it immediatelly
 				if (decode_ok && verify_ok) {
-					process_keydown(&decoded, &header, &record, 1, (uint8_t *)kl_ctx.kl_rx_buff); // PROCESS AGAIN but with a repeated-flag
+					event_keydown(&decoded, &header, &record, (uint8_t *)kl_ctx.kl_rx_buff, 1);
 				}
 			}
 		}
@@ -411,7 +443,9 @@ int main(void)
 			if(processed) {
 				kl_rx_flush(&kl_ctx); // "flush" buffer, make room for next code to be pushed into the RX buffer
 
+				#ifdef DEBUG
 				uart_puts("RX STOP.\r\n\r\n");
+				#endif
 
 				// decoding was OK?
 				if (decode_ok) {
@@ -421,85 +455,259 @@ int main(void)
 				processed = 0;
 			}
 		}
-		*/
 
 	}
 }
 
-/*
-// key pressed on a remote, lets see if it is a valid one
-uint8_t event_keydown(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_header *header, struct eedb_hcs_record *record, uint8_t *kl_rx_buff) {
-	switch (op_mode) {
-		// MODE: KeeLoq standard receiver
-		// MODE: MITM Upgrader
-		case OP_MODE_1:
-		case OP_MODE_2:
-		{
-			// verify in database
-			uint16_t eeaddr = eedb_find_record_eeaddr(&eedb_hcsdb, decoded->serial, 0, 0);
-			if (eeaddr != EEDB_INVALID_ADDR) {
-				eedb_read_record_by_eeaddr(&eedb_hcsdb, eeaddr, header, record);
+// key pressed on a remote
+uint8_t event_keydown(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_header *header, struct eedb_hcs_record *record, uint8_t *kl_rx_buff, uint8_t repeated) {
+	if(repeated) {
+		/*#ifdef DEBUG
+		uart_puts("event_keydown(repeated)\r\n");
+		#endif*/
+		return 1;
+	}
+	
+	// OPTION 1: KeeLoq standard receiver
+	// OPTION 2: MITM Upgrader
+	if((option_state & OP_STATE_1) || (option_state & OP_STATE_2))
+	{
+		uint16_t eeaddr = eedb_find_record_eeaddr(&eedb_hcsdb, decoded->serial, 0, 0);
+		if (eeaddr != EEDB_INVALID_ADDR) {
+			eedb_read_record_by_eeaddr(&eedb_hcsdb, eeaddr, header, record);
 
-				// fixed-code
-				if (record->encoder == ENCODER_HCS101) {
-					process_keydown(decoded, header, record, 0, kl_rx_buff);
-				}
-				// rolling-code
-				else {
-					// re-decode but now with a proper key
-					uint8_t decode_ok = keeloq_decode((uint8_t *)kl_ctx.kl_rx_buff, kl_ctx.kl_rx_buff_bit_index, record->crypt_key, decoded);
-					if (decode_ok) {
-						// discrimination must match with database value
-						// buttons vs buttons-encrypted must match
-						// counter value must be within allowed window
-						if (
-							decoded->disc == record->discriminator
-							&& decoded->buttons == decoded->buttons_enc
-							&& next_within_window(decoded->counter, record->counter, 16)
-							) {
+			uint8_t do_process = 0;
 
-							process_keydown(decoded, header, record, 0, kl_rx_buff);
+			// fixed-code
+			if (record->encoder == ENCODER_HCS101) {
+				do_process = 1;
+				
+				#ifdef DEBUG
+				uart_puts("event_keydown HCS101\r\n");
+				#endif
+			}
+			// rolling-code
+			else {
+				// TODO: CREATE ANTI-BRUTE FORCE PROCETCION IN A FORM OF A DELAY OR larger window-RE-SYNC REQUIREMENT
 
-							// update database with new COUNTER value received
-							record->counter = decoded->counter;
-							record->counter_resync = decoded->counter; // follow
-							eedb_update_record(&eedb_hcsdb, header->pk, 0, 0, 0, record);
-						}
-						else {
-							// try re-syncing within a DOUBLE OPERATION larger window of 32K
-							if (next_within_window(decoded->counter, record->counter, 32767)) {
-								// but this must be a successive transmission (window of 1)
-								if (next_within_window(decoded->counter, record->counter_resync, 1)) {
-									record->counter = decoded->counter;
-								}
+				// re-decode but now with a proper key
+				uint8_t decode_ok = keeloq_decode((uint8_t *)kl_ctx.kl_rx_buff, kl_ctx.kl_rx_buff_bit_index, record->crypt_key, decoded);
+				if (decode_ok) {
+					// discrimination must match with database value
+					// buttons vs buttons-encrypted must match
+					// counter value must be within allowed window
+					if (
+					decoded->disc == record->discriminator
+					&& decoded->buttons == decoded->buttons_enc
+					&& next_within_window(decoded->counter, record->counter, 16)
+					) {
 
-								// update database with new COUNTER value received but in the RESYNC field
-								record->counter_resync = decoded->counter;
-								eedb_update_record(&eedb_hcsdb, header->pk, 0, 0, 0, record);
-							}
-						}
+						do_process = 1;
+
+						#ifdef DEBUG
+						uart_puts("event_keydown HCS ROLLING OK\r\n");
+						#endif
+
+						// update database with new COUNTER value received
+						record->counter = decoded->counter;
+						record->counter_resync = decoded->counter; // follow
+						eedb_update_record(&eedb_hcsdb, header->pk, 0, 0, 0, record);
 					}
 					else {
-						return 0; // err
+						#ifdef DEBUG
+						uart_puts("event_keydown HCS ROLLING CHECK FAIL\r\n");
+						#endif
+
+						// try re-syncing within a DOUBLE OPERATION larger window of 32K
+						if (next_within_window(decoded->counter, record->counter, 32767)) {
+							#ifdef DEBUG
+							uart_puts("event_keydown HCS ROLLING CHECK FAIL, RE-SYNC ATTEMPT\r\n");
+							#endif
+
+							// but this must be a successive transmission (window of 1)
+							if (next_within_window(decoded->counter, record->counter_resync, 1)) {
+								record->counter = decoded->counter;
+							}
+
+							// update database with new COUNTER value received but in the RESYNC field
+							record->counter_resync = decoded->counter;
+							eedb_update_record(&eedb_hcsdb, header->pk, 0, 0, 0, record);
+						}
+					}
+				}
+				else {
+					#ifdef DEBUG
+					uart_puts("event_keydown HCS ROLLING DECODE FAILED\r\n");
+					#endif
+
+					return 0; // err
+				}
+			}
+
+			// OK to process for Option 1 / 2?
+			if (do_process) {
+
+				if(option_state & OP_STATE_1) {
+					#ifdef DEBUG
+					uart_puts("Process OPTION 1\r\n");
+					#endif
+
+					if (decoded->buttons & 2) {
+						setHigh(S0_PORT, S0_PIN);
+					}
+					if (decoded->buttons & 4) {
+						setHigh(S1_PORT, S1_PIN);
+					}
+					if (decoded->buttons & 8) {
+						setHigh(S2_PORT, S2_PIN);
+					}
+					if (decoded->buttons & 1) {
+						setHigh(S3_PORT, S3_PIN);
+					}
+				}
+
+				if(option_state & OP_STATE_2) {
+					#ifdef DEBUG
+					uart_puts("Process OPTION 2\r\n");
+					#endif
+
+					// ucitaj iz eeproma MITM HCS101 profil
+					struct eedb_hcs_record hcs101record;
+					uint16_t eeaddr = eedb_find_record_eeaddr(&eedb_hcsmitm, EEDB_PKFK_ANY, 0, 0);
+					if (eeaddr != EEDB_INVALID_ADDR) {
+						ledb_on();
+
+						kl_rx_stop(&kl_ctx);
+
+						eedb_read_record_by_eeaddr(&eedb_hcsmitm, eeaddr, 0, &hcs101record);
+
+						// transfer from edb_hcs_record to KEELOQ_DECODE_PLAIN so we can encode it and transmit
+						struct KEELOQ_DECODE_PLAIN hcs101decoded;
+						hcs101decoded.buttons = hcs101record.buttons;
+						hcs101decoded.counter = ++hcs101record.counter; // increment counter value in the record
+						hcs101decoded.serial = hcs101record.serialno;
+						hcs101decoded.serial3 = hcs101record.serial3no;
+						hcs101decoded.vlow = 0; // our voltage is never low
+
+						// encode as HCS101 (meaning encode it without using a key)
+						char hcs101buff[KL_BUFF_LEN];
+						keeloq_encode(ENCODER_HCS101, &hcs101decoded, 0, (uint8_t *)&hcs101buff);
+
+						// send a burst few times, just in case receiver is lazy
+						for(uint8_t i = 0; i < 10; i++) {
+							kl_tx(&kl_ctx, (uint8_t *)&hcs101buff, 66, hcs101record.timing_element, 23, hcs101record.header_length, 15000);
+						}
+
+						// update HCS101 MITM profile, the counter value has changed above (++hcs101record.counter)
+						eedb_update_record(&eedb_hcsmitm, EEDB_PKFK_ANY, 0, 0, 0, &hcs101record);
+
+						delay_ms_(50);
+
+						kl_rx_flush(&kl_ctx);
+						kl_rx_start(&kl_ctx);
+
+						ledb_off();
 					}
 				}
 			}
-			else {
-				return 0; // err
+		}
+		else {
+			#ifdef DEBUG
+			uart_puts("Unknown device.\r\n");
+			#endif
+
+			return 0; // err
+		}
+	}
+	
+	// OPTION: Grabber/Logger
+	if(option_state & OP_STATE_3) {
+		ledb_on();
+
+		#ifdef DEBUG
+		char tmp[64];
+		sprintf(tmp, "LOGGING SERIAL: %lu\r\n", decoded->serial);
+		uart_puts(tmp);
+		#endif
+
+		// vidi imal ga vec u grabbed tabeli, ako nema insertuj, ako ima probaj ga klasificirati i updejtuj record
+		last_grabbed_eeaddr = eedb_find_record_eeaddr(&eedb_hcslogdevices, decoded->serial, 0, 0);
+		struct eedb_hcs_record dbrecord;
+		if (last_grabbed_eeaddr == EEDB_INVALID_ADDR) {
+			#ifdef DEBUG
+			uart_puts("NOT FOUND\r\n");
+			#endif
+
+			dbrecord.encoder = ENCODER_UNKNOWN;
+			dbrecord.crypt_key = 0; // we dont know this
+			dbrecord.counter = decoded->counter; // for rolling codes we dont know this
+			dbrecord.discriminator = decoded->disc; // for rolling codes we dont know this
+			dbrecord.serialno = decoded->serial; // we always know this
+			dbrecord.serial3no = decoded->serial3; // this is only in case this was HCS101 we just received, but we don't know up front
+			// information needed for possible re-transmission later
+			dbrecord.buttons = decoded->buttons; // we always know this
+			dbrecord.timing_element = kl_ctx.kl_rx_timing_element;
+			dbrecord.header_length = kl_ctx.kl_rx_header_length;
+
+			// save to database
+			eedb_insert_record(&eedb_hcslogdevices, decoded->serial, 0, &dbrecord);
+		}
+		else {
+			// ucitaj prethodnu prvi transmisiju, i ako vec nije - klasificiraj ga kao HCS101 ili neki od rolling-code-ova
+			eedb_read_record_by_eeaddr(&eedb_hcslogdevices, last_grabbed_eeaddr, 0, &dbrecord);
+
+			#ifdef DEBUG
+			sprintf(tmp, "FOUND AS: %u, SERIAL: %lu\r\n", dbrecord.encoder, dbrecord.serialno);
+			uart_puts(tmp);
+			#endif
+
+			// lets try to classify it if not already classified
+			if(dbrecord.encoder == ENCODER_UNKNOWN) {
+				// our best guess that this is HCS101 fixed encoder
+				if(kl_ctx.kl_rx_buff_bit_index == 66
+				&& decoded->disc == dbrecord.discriminator
+				&& decoded->serial3 == dbrecord.serial3no
+				&& decoded->buttons == decoded->buttons_enc)
+				{
+					dbrecord.encoder = ENCODER_HCS101;
+				}
+				else if(kl_ctx.kl_rx_buff_bit_index == 66) {
+					dbrecord.encoder = ENCODER_HCS200; // it could be this one
+				}
+				else if(kl_ctx.kl_rx_buff_bit_index == 67) {
+					dbrecord.encoder = ENCODER_HCS360; // it could be this one
+				}
+				else if(kl_ctx.kl_rx_buff_bit_index == 69) {
+					dbrecord.encoder = ENCODER_HCS362; // it could be this one
+				}
+
+				// update record in database, if we figured out which one it could be
+				if(dbrecord.encoder != ENCODER_UNKNOWN) {
+					#ifdef DEBUG
+					sprintf(tmp, "CLASSIFIED AS: %u\r\n", dbrecord.encoder);
+					uart_puts(tmp);
+					#endif
+					eedb_update_record(&eedb_hcslogdevices, decoded->serial, 0, 0, 0, &dbrecord);
+				}
+			}
+			// if it is HCS101, update the SYNC COUNTER value so we keep track of it
+			else if (dbrecord.encoder == ENCODER_HCS101) {
+				dbrecord.counter = decoded->counter;
+				eedb_update_record(&eedb_hcslogdevices, decoded->serial, 0, 0, 0, &dbrecord);
 			}
 		}
-		break;
 
-		// MODE: Grabber/Logger
-		case OP_MODE_3:
-			// no further processing required, go to process_keydown()
-			process_keydown(decoded, header, record, 0, kl_rx_buff);
-		break;
+		// snimi i log entry ako nije HCS101, jer njega nemamo sta snimati, samo se buttonsi mijenjaju. counter vec gore updejtamo
+		if(dbrecord.encoder != ENCODER_HCS101) {
+			struct eedb_log_record log_record;
+			memcpy(log_record.kl_rx_buff, kl_rx_buff, KL_BUFF_LEN);
 
-		// MODE: Remote transmitter emulator
-		case OP_MODE_4:
-			// we expect nothing here my friend
-		break;
+			// save to database
+			// note to myself: i should make PK auto increment functionality for this reason...
+			eedb_insert_record(&eedb_hcsloglogs, 0, decoded->serial, &log_record);
+		}
+
+		ledb_off();
 	}
 
 	return 1; // ok
@@ -507,192 +715,60 @@ uint8_t event_keydown(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_he
 		
 // key released on a remote
 void event_keyup(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_header *header, struct eedb_hcs_record *record) {
-	// no special event on keyup, just call process_keyup()
-	process_keyup(decoded, header, record);
-}
 
-void process_keydown(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_header *header, struct eedb_hcs_record *record, uint8_t repeated, uint8_t *kl_rx_buff) {
-	switch (op_mode) {
-	case OP_MODE_1:
-		// do this only first time
-		if (!repeated) {
-			if (decoded->buttons & 1) {
-				setHigh(S0_PORT, S0_PIN);
-			}
-			if (decoded->buttons & 2) {
-				setHigh(S1_PORT, S1_PIN);
-			}
-			if (decoded->buttons & 4) {
-				setHigh(S2_PORT, S2_PIN);
-			}
-			if (decoded->buttons & 8) {
-				setHigh(S3_PORT, S3_PIN);
-			}
-		}
-		break;
-
-	case OP_MODE_2:
-		{
-			// ucitaj iz eeproma MITM HCS101 profil
-			struct eedb_hcs_record hcs101record;
-			uint16_t eeaddr = eedb_find_record_eeaddr(&eedb_hcsmitm, EEDB_PKFK_ANY, 0, 0);
-			if (eeaddr != EEDB_INVALID_ADDR) {
-				ledb_on();
-				
-				kl_rx_stop(&kl_ctx);
-				
-				eedb_read_record_by_eeaddr(&eedb_hcsmitm, eeaddr, 0, &hcs101record);
-
-				// transfer from edb_hcs_record to KEELOQ_DECODE_PLAIN so we can encode it and transmit
-				struct KEELOQ_DECODE_PLAIN hcs101decoded;
-				hcs101decoded.buttons = hcs101record.buttons;
-				hcs101decoded.counter = ++hcs101record.counter; // increment counter value in the record
-				hcs101decoded.serial = hcs101record.serialno;
-				hcs101decoded.serial3 = hcs101record.serial3no;
-				hcs101decoded.vlow = 0; // our voltage is never low
-
-				// encode as HCS101 (meaning encode it without using a key)
-				char hcs101buff[KL_BUFF_LEN];
-				keeloq_encode(ENCODER_HCS101, &hcs101decoded, 0, (uint8_t *)&hcs101buff);
-
-				// send a burst few times, just in case receiver is lazy
-				for(uint8_t i = 0; i < 3; i++) {
-					kl_tx(&kl_ctx, (uint8_t *)&hcs101buff, 66, hcs101record.timing_element, 23, hcs101record.header_length, 15000);
-				}
-
-				// update HCS101 MITM profile, the counter value has changed above (++hcs101record.counter)
-				eedb_update_record(&eedb_hcsmitm, EEDB_PKFK_ANY, 0, 0, 0, &hcs101record);
-				
-				delay_ms_(50);
-				
-				kl_rx_start(&kl_ctx);
-				//kl_ctx.kl_rx_state = KL_RX_FULL_DONE; // messy
-				
-				ledb_off();		
-			}
-		}
-		break;
-
-	case OP_MODE_3:
-		if (!repeated) {
-			ledb_on();
-
-			char tmp[72];
-			sprintf(tmp, "LOGGING SERIAL: %lu\r\n", decoded->serial);
-			uart_puts(tmp);
-			
-			// vidi imal ga vec u grabbed tabeli, ako nema insertuj, ako ima probaj ga klasificirati i updejtuj record
-			last_grabbed_eeaddr = eedb_find_record_eeaddr(&eedb_hcslogdevices, decoded->serial, 0, 0);
-			struct eedb_hcs_record dbrecord;
-			if (last_grabbed_eeaddr == EEDB_INVALID_ADDR) {
-				uart_puts("NOT FOUND\r\n");
-				
-				dbrecord.encoder = ENCODER_UNKNOWN;
-				dbrecord.crypt_key = 0; // we dont know this
-				dbrecord.counter = decoded->counter; // for rolling codes we dont know this
-				dbrecord.discriminator = decoded->disc; // for rolling codes we dont know this
-				dbrecord.serialno = decoded->serial; // we always know this
-				dbrecord.serial3no = decoded->serial3; // this is only in case this was HCS101 we just received, but we don't know up front
-				// information needed for possible re-transmission later
-				dbrecord.buttons = decoded->buttons; // we always know this
-				dbrecord.timing_element = kl_ctx.kl_rx_timing_element;
-				dbrecord.header_length = kl_ctx.kl_rx_header_length;
-
-				// save to database
-				eedb_insert_record(&eedb_hcslogdevices, decoded->serial, 0, &dbrecord);
-			}
-			else {
-				// ucitaj prethodnu prvi transmisiju, i ako vec nije - klasificiraj ga kao HCS101 ili neki od rolling-code-ova
-				eedb_read_record_by_eeaddr(&eedb_hcslogdevices, last_grabbed_eeaddr, 0, &dbrecord);
-
-				sprintf(tmp, "FOUND AS: %u, SERIAL: %lu\r\n", dbrecord.encoder, dbrecord.serialno);
-				uart_puts(tmp);
-
-				// lets try to classify it if not already classified
-				if(dbrecord.encoder == ENCODER_UNKNOWN) {
-					// our best guess that this is HCS101 fixed encoder
-					if(kl_ctx.kl_rx_buff_bit_index == 66
-						&& decoded->disc == dbrecord.discriminator
-						&& decoded->serial3 == dbrecord.serial3no
-						&& decoded->buttons == decoded->buttons_enc)
-					{
-						dbrecord.encoder = ENCODER_HCS101;
-					}
-					else if(kl_ctx.kl_rx_buff_bit_index == 66) {
-						dbrecord.encoder = ENCODER_HCS200; // it could be this one
-					}
-					else if(kl_ctx.kl_rx_buff_bit_index == 67) {
-						dbrecord.encoder = ENCODER_HCS360; // it could be this one
-					}
-					else if(kl_ctx.kl_rx_buff_bit_index == 69) {
-						dbrecord.encoder = ENCODER_HCS362; // it could be this one
-					}
-
-					// update record in database, if we figured out which one it could be
-					if(dbrecord.encoder != ENCODER_UNKNOWN) {
-						sprintf(tmp, "CLASSIFIED AS: %u\r\n", dbrecord.encoder);
-						uart_puts(tmp);
-						eedb_update_record(&eedb_hcslogdevices, decoded->serial, 0, 0, 0, &dbrecord);
-					}
-				}
-				// if it is HCS101, update the SYNC COUNTER value so we keep track of it
-				else if (dbrecord.encoder == ENCODER_HCS101) {
-					dbrecord.counter = decoded->counter;
-					eedb_update_record(&eedb_hcslogdevices, decoded->serial, 0, 0, 0, &dbrecord);
-				}
-			}
-
-			// snimi i log entry ako nije HCS101, jer njega nemamo sta snimati, samo se buttonsi mijenjaju. counter vec gore updejtamo
-			if(dbrecord.encoder != ENCODER_HCS101) {
-				struct eedb_log_record log_record;
-				memcpy(log_record.kl_rx_buff, kl_rx_buff, KL_BUFF_LEN);
-				
-				// save to database
-				// note to myself: i should make PK auto increment functionality for this reason...
-				eedb_insert_record(&eedb_hcsloglogs, 0, decoded->serial, &log_record);
-			}
-			
-			ledb_off();
-		}
-		break;
-
-	case OP_MODE_4:
-		// we don't receive anything in Mode 4		
-		break;
+	// OPTION: KeeLoq standard receiver
+	if(option_state & OP_STATE_1) {
+		setLow(S0_PORT, S0_PIN);
+		setLow(S1_PORT, S1_PIN);
+		setLow(S2_PORT, S2_PIN);
+		setLow(S3_PORT, S3_PIN);
 	}
+	
+	// other options for handling maybe?
 }
-
-void process_keyup(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_header *header, struct eedb_hcs_record *record) {
-	switch (op_mode) {
-		// MODE: KeeLoq standard receiver
-		case OP_MODE_1:
-			setLow(S0_PORT, S0_PIN);
-			setLow(S1_PORT, S1_PIN);
-			setLow(S2_PORT, S2_PIN);
-			setLow(S3_PORT, S3_PIN);
-			break;
-
-		// MODE: MITM Upgrader
-		case OP_MODE_2:
-			// something?
-			break;
-
-		// MODE: Grabber/Logger
-		case OP_MODE_3:
-			// something?
-			break;
-
-		// MODE: Remote transmitter emulator
-		case OP_MODE_4:
-			// something?
-			break;
-	}
-}
-*/
 
 void clear_pending_buttons() {
 	btn_hold = 0;
 	btn_press = 0;
+}
+
+void handle_tx_emulator_buttons() {
+	// use raw buttons here, without debouncer. we will see if it is a smart thing to do or not
+	uint8_t buttons = 0;
+	uint8_t prev_buttons = 0xFF; // something different from buttons
+	while(1) {
+		if( !(BTNS0_PINREG & _BV(BTNS0_PIN)) ) {
+			buttons |= 0b00000010;
+		}
+		if( !(BTNS1_PINREG & _BV(BTNS1_PIN)) ) {
+			buttons |= 0b00000100;
+		}
+		if( !(BTNS2_PINREG & _BV(BTNS2_PIN)) ) {
+			buttons |= 0b00001000;
+		}
+		if( !(BTNS3_PINREG & _BV(BTNS3_PIN)) ) {
+			buttons |= 0b00000001;
+		}
+
+		// nothing to transmit (anymore)?
+		if(!buttons) {
+			break;
+		}
+
+		// re-start transmission (also initial transmission is here)
+		// additional button pressed/released DURING current transmission?
+		if(prev_buttons != buttons) {
+			prev_buttons = buttons;
+
+			// prepare the transmission word
+			// traxy
+		}
+		
+		// transmit, my son
+		// TODO...
+	}
+
+	clear_pending_buttons(); // clear any pending button press or hold
 }
 
 uint8_t handle_ui_buttons() {
@@ -898,8 +974,8 @@ void enroll_transmitter_rf() {
 	ledb_on();
 
 	// debug
-	char tmp[128];
-	uart_puts("Waiting first TX...\r\n");
+	//char tmp[128];
+	//uart_puts("Waiting first TX...\r\n");
 
 	struct KEELOQ_DECODE_PLAIN *decoded;
 	struct KEELOQ_DECODE_PLAIN decoded_rolling1;
@@ -940,8 +1016,8 @@ void enroll_transmitter_rf() {
 				uint8_t encoder = ENCODER_INVALID;
 
 				// debug na uart
-				sprintf(tmp, "SER 1: %lu, SER 2: %lu\r\n", decoded_rolling1.serial, decoded_rolling2.serial);
-				uart_puts(tmp);
+				//sprintf(tmp, "SER 1: %lu, SER 2: %lu\r\n", decoded_rolling1.serial, decoded_rolling2.serial);
+				//uart_puts(tmp);
 
 				// make sure someone isn't using two remotes during this process
 				// serial numbers match -> continue
@@ -959,7 +1035,7 @@ void enroll_transmitter_rf() {
 						) {
 						// it is one of the encrypted ones, lets figure out which one
 						
-						uart_puts("ENCRYTPTED TYPE\r\n");
+						//uart_puts("ENCRYTPTED TYPE\r\n");
 
 						// if 66 bit:
 						//		we can assume it is hcs200...
@@ -992,7 +1068,7 @@ void enroll_transmitter_rf() {
 						struct KEELOQ_DECODE_PLAIN decoded_fixed2;
 						keeloq_decode((uint8_t*)kl_ctx.kl_rx_buff, kl_ctx.kl_rx_buff_bit_index, 0, &decoded_fixed2);
 						
-						uart_puts("Decrypt failed, fixed code?\r\n");
+						//uart_puts("Decrypt failed, fixed code?\r\n");
 
 						// HCS101 also increases its counter value so we can apply the same logic here
 						if (
@@ -1003,19 +1079,19 @@ void enroll_transmitter_rf() {
 							encoder = ENCODER_HCS101;
 							decoded = &decoded_fixed1;
 							
-							uart_puts("HCS101\r\n");
+							//uart_puts("HCS101\r\n");
 						}
 						else {
-							uart_puts("UNCLASSIFIED\r\n");
+							//uart_puts("UNCLASSIFIED\r\n");
 						}
 					}
 					else {
-						sprintf(tmp, "WTF: %d\r\n", kl_ctx.kl_rx_buff_bit_index);
-						uart_puts(tmp);
+						//sprintf(tmp, "WTF: %d\r\n", kl_ctx.kl_rx_buff_bit_index);
+						//uart_puts(tmp);
 					}
 				}
 				else {
-					uart_puts("SERIALS DONT MATCH\r\n");
+					//uart_puts("SERIALS DONT MATCH\r\n");
 				}
 
 				// encoder classified? let's save it into eeprom memorajz
@@ -1033,13 +1109,12 @@ void enroll_transmitter_rf() {
 					record.timing_element = kl_ctx.kl_rx_timing_element;
 					record.header_length = kl_ctx.kl_rx_header_length;
 
-					/*
 					// MODE: MITM Upgrader & HCS101 received? - store it in special section
-					if (op_mode == OP_MODE_2 && encoder == ENCODER_HCS101) {
+					if ((option_state & OP_STATE_2) && (encoder == ENCODER_HCS101)) {
 						// save to database
 						uint16_t inserted = eedb_insert_record(&eedb_hcsmitm, record.serialno, 0, &record);
 						if(inserted == EEDB_INVALID_ADDR) {
-							leda_blink(3); // report ERROR - there is already HCS101 memorised at the location. user needs to perform CLEAR MEMORY
+							leda_blink(3); // report ERROR - there is already HCS101 memorised at the location. user needs to perform CLEAR MEMORY first
 						}
 						else {
 							ledc_blink(5); // report OK - memorized as HCS101 - unsecure device
@@ -1048,7 +1123,6 @@ void enroll_transmitter_rf() {
 					// MODE: KeeLoq standard receiver
 					// MODE: MITM Upgrader
 					else {
-						*/
 						// already exists in memory?
 						uint16_t eeaddr = eedb_find_record_eeaddr(&eedb_hcsdb, decoded->serial, 0, 0);
 
@@ -1061,8 +1135,8 @@ void enroll_transmitter_rf() {
 						}
 						// store to eeprom
 						else {
-							sprintf(tmp, "PROCESSED AS DEVICE: %u!\r\n", encoder);
-							uart_puts(tmp);
+							//sprintf(tmp, "PROCESSED AS DEVICE: %u!\r\n", encoder);
+							//uart_puts(tmp);
 
 							// save to database
 							eedb_insert_record(&eedb_hcsdb, record.serialno, 0, &record);
@@ -1075,13 +1149,10 @@ void enroll_transmitter_rf() {
 								ledc_blink(2); // report OK - successfully decryption
 							}
 							
-							sprintf(tmp, "[%lu] (%u) {%u}\r\n", decoded->serial, decoded->counter, decoded->disc);
-							uart_puts(tmp);
-
+							//sprintf(tmp, "[%lu] (%u) {%u}\r\n", decoded->serial, decoded->counter, decoded->disc);
+							//uart_puts(tmp);
 						}
-						/*
 					}
-					*/
 				}
 				// encoder not supported or different serial numbers received
 				else {
@@ -1098,8 +1169,7 @@ void enroll_transmitter_rf() {
 				first_rx_done = 1;
 				led_isrblink(ISR_LED_B_MASK, ISR_LED_BLINK_XFAST_MS); // indicate first reception by blinking it
 				action_expecter_timer = BTN_ENROLL_SECOND_REMOTE_EXPECTER; // reload to expect next transmission
-				
-				uart_puts("RX 1 OK, waiting 2...\r\n");
+				//uart_puts("RX 1 OK, waiting 2...\r\n");
 			}
 			
 			kl_rx_start(&kl_ctx); // re-start the keeloq rx
@@ -1111,7 +1181,7 @@ void enroll_transmitter_rf() {
 	
 	kl_rx_stop(&kl_ctx); // stop keeloq rx
 	
-	uart_puts("Exit prog.\r\n");
+	//uart_puts("Exit prog.\r\n");
 }
 
 // this looks stupid
@@ -1298,9 +1368,6 @@ void update_settings_to_eeprom() {
 
 	// MASTER CRYPT-KEY
 	eeprom_write_block((uint64_t *)&master_crypt_key, (uint8_t *)EEPROM_MASTER_CRYPT_KEY, 8);
-
-	// TX EMULATOR EEPROM ADDRESS
-	eeprom_write_block((uint16_t*)&emulator_tx_eeaddr, (uint8_t*)EEPROM_TX_EMULATOR_EEADDR, 2);
 
 	// say eeprom is valid
 	eeprom_write_byte((uint8_t *)EEPROM_MAGIC, EEPROM_MAGIC_VALUE);

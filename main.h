@@ -39,7 +39,6 @@
 #define EEPROM_MAGIC				EEPROM_START + 0				// eeprom OK - magic value
 #define EEPROM_OPTION_STATES		EEPROM_MAGIC + 1				// state of operating options
 #define EEPROM_MASTER_CRYPT_KEY		EEPROM_OPTION_STATES + 1		// master crypt key for learning encrypted HCS devices via RF
-#define EEPROM_TX_EMULATOR_EEADDR	EEPROM_MASTER_CRYPT_KEY + 8		// master crypt key for learning encrypted HCS devices via RF
 
 #define EEPROM_MAGIC_VALUE			0xAA
 
@@ -208,12 +207,10 @@ void set_mode(uint8_t, uint8_t);
 void update_settings_to_eeprom();
 void delay_ms_(uint64_t);
 void show_number_on_leds(uint16_t);
+void handle_tx_emulator_buttons();
 
-uint8_t event_keydown(struct KEELOQ_DECODE_PLAIN *, struct eedb_record_header *, struct eedb_hcs_record *, uint8_t *);
+uint8_t event_keydown(struct KEELOQ_DECODE_PLAIN *, struct eedb_record_header *, struct eedb_hcs_record *, uint8_t *, uint8_t);
 void event_keyup(struct KEELOQ_DECODE_PLAIN *, struct eedb_record_header *, struct eedb_hcs_record *);
-
-void process_keydown(struct KEELOQ_DECODE_PLAIN *, struct eedb_record_header *, struct eedb_hcs_record *, uint8_t, uint8_t *);
-void process_keyup(struct KEELOQ_DECODE_PLAIN *, struct eedb_record_header *, struct eedb_hcs_record *);
 
 // LED helpers
 void leda_on();
