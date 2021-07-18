@@ -97,7 +97,7 @@ void keeloq_encode(uint8_t encoder, struct KEELOQ_DECODE_PLAIN *decoded, uint64_
 	if(key) {
 		// counter value
 		uint32_t encrypted_section = decoded->counter;
-	
+
 		// discrimination value
 		if(encoder == ENCODER_HCS360 ||encoder == ENCODER_HCS361) {
 			encrypted_section |= (uint32_t)decoded->serial << 16;
@@ -121,8 +121,8 @@ void keeloq_encode(uint8_t encoder, struct KEELOQ_DECODE_PLAIN *decoded, uint64_
 	// probably HCS101. it has a different "encrypted" section which is not encrypted, and also "SERIAL 3"
 	else {
 		// counter value
-		kl_buff[3] = (uint8_t)(decoded->counter & 0xFF);
-		kl_buff[2] = (uint8_t)((decoded->counter & 0xFF00) >> 8);
+		kl_buff[3] = (uint8_t)((decoded->counter & 0xFF00) >> 8);
+		kl_buff[2] = (uint8_t)(decoded->counter & 0xFF);
 
 		// put serial 3 in last 2 bytes, but overwrite with buttons and "00 bits" later
 		kl_buff[1] = (uint8_t)((decoded->serial3 & 0xFF00) >> 8);

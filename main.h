@@ -208,6 +208,7 @@ void update_settings_to_eeprom();
 void delay_ms_(uint64_t);
 void show_number_on_leds(uint16_t);
 void handle_tx_emulator_buttons();
+void delay_builtin_ms_(uint16_t);
 
 uint8_t event_keydown(struct KEELOQ_DECODE_PLAIN *, struct eedb_record_header *, struct eedb_hcs_record *, uint8_t *);
 void event_keyup(struct KEELOQ_DECODE_PLAIN *, struct eedb_record_header *, struct eedb_hcs_record *);
