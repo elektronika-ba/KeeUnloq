@@ -54,10 +54,10 @@ void kl_tx_process(volatile struct keeloq_ctx *ctx) {
 	if(ctx->kl_tx_process_busy) return;
 	ctx->kl_tx_process_busy = 1;
 
-	// the transmission happens LSb first so lets save it that way in our buffer
+	// the transmission works LSb first
 	uint8_t arr_index = ctx->kl_tx_buff_bit_index / 8;
 	uint8_t arr_bit_index = ctx->kl_tx_buff_bit_index % 8;
-	
+
 	uint8_t buff_byteval = ctx->kl_tx_buff[arr_index];
 	if(arr_bit_index > 0) {
 		buff_byteval = (buff_byteval >> arr_bit_index);

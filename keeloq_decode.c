@@ -132,7 +132,7 @@ void keeloq_encode(uint8_t encoder, struct KEELOQ_DECODE_PLAIN *decoded, uint64_
 		kl_buff[1] &= 0b00000011;
 		kl_buff[1] |= ((decoded->buttons & 0b00001111) << 4);
 	}
-		
+
 	// build fixed portion next
 	
 	// buttons & serial number (serial is 28 bits so overwrite upper 4 bits with ->buttons lower nibble)

@@ -480,11 +480,11 @@ int main(void)
 		// DEBUG - SAVE A TEST PROFILE TO DB
 		tx_emulator_record.encoder = ENCODER_HCS101;
 		tx_emulator_record.buttons = 0;
-		tx_emulator_record.counter = 5100;
+		tx_emulator_record.counter = 5150;
 		tx_emulator_record.crypt_key = 0;
 		tx_emulator_record.discrimination = 0;
-		tx_emulator_record.header_length = 4000;
-		tx_emulator_record.timing_element = 400;
+		tx_emulator_record.header_length = 3400;
+		tx_emulator_record.timing_element = 340;
 		tx_emulator_record.serial = 92071127;
 		tx_emulator_record.serial3 = 0;
 		eedb_format_memory(&eedb_hcstx);
@@ -531,11 +531,11 @@ int main(void)
 						tx_emulator_decoded.repeat = 0; // make me sometimes in the future...
 						tx_emulator_decoded.vlow = 0;
 
-						// encode
-						keeloq_encode(tx_emulator_record.encoder, &tx_emulator_decoded, tx_emulator_record.crypt_key, (uint8_t *)&tx_emulator_kl_buff);
-
 						// update tx profile, the counter value has changed above (++tx_emulator_record.counter)
 						eedb_update_record(&eedb_hcstx, EEDB_PKFK_ANY, 0, 0, 0, &tx_emulator_record);
+
+						// encode
+						keeloq_encode(tx_emulator_record.encoder, &tx_emulator_decoded, tx_emulator_record.crypt_key, (uint8_t *)&tx_emulator_kl_buff);
 
 						#ifdef DEBUG
 						uart_puts("TX: ");
@@ -553,7 +553,7 @@ int main(void)
 				// transmit if there is TX profile in memory
 				if(tx_emulator_eeaddr != EEDB_INVALID_ADDR) {
 					ledc_on();
-					kl_tx(&kl_ctx, (uint8_t *)&tx_emulator_kl_buff, 66, tx_emulator_record.timing_element, 25, tx_emulator_record.header_length, 12500);
+					kl_tx(&kl_ctx, (uint8_t *)&tx_emulator_kl_buff, 66, tx_emulator_record.timing_element, 25, tx_emulator_record.header_length, 13800);
 					ledc_off();
 				}
 				// report error
