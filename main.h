@@ -3,7 +3,7 @@
  *
  * Created: 26. 1. 2021. 09:56:45
  *  Author: Trax
- */ 
+ */
 
 #ifndef MAIN_H_
 #define MAIN_H_
@@ -35,10 +35,10 @@
 #define nop() asm volatile("nop")
 
 // EEPROM addresses
-#define	EEPROM_START				0								// start of our data in eeprom is here
-#define EEPROM_MAGIC				EEPROM_START + 0				// eeprom OK - magic value
-#define EEPROM_OPTION_STATES		EEPROM_MAGIC + 1				// state of operating options
-#define EEPROM_MASTER_CRYPT_KEY		EEPROM_OPTION_STATES + 1		// master crypt key for learning encrypted HCS devices via RF
+#define	EEPROM_START				(0)								// start of our data in eeprom is here
+#define EEPROM_MAGIC				(EEPROM_START + 0)				// eeprom OK - magic value
+#define EEPROM_OPTION_STATES		(EEPROM_MAGIC + 1)				// state of operating options
+#define EEPROM_MASTER_CRYPT_KEY		(EEPROM_OPTION_STATES + 1)		// master crypt key for learning encrypted HCS devices via RF
 
 #define EEPROM_MAGIC_VALUE			0xAA
 

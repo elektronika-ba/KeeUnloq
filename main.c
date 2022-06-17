@@ -480,14 +480,14 @@ int main(void)
 		// DEBUG - SAVE A TEST PROFILE TO DB
 		tx_emulator_record.encoder = ENCODER_HCS101;
 		tx_emulator_record.buttons = 0;
-		tx_emulator_record.counter = 5150;
+		tx_emulator_record.counter = 5175;
 		tx_emulator_record.crypt_key = 0;
 		tx_emulator_record.discrimination = 0;
-		tx_emulator_record.header_length = 3400;
-		tx_emulator_record.timing_element = 340;
+		tx_emulator_record.header_length = 2800;
+		tx_emulator_record.timing_element = 390;
 		tx_emulator_record.serial = 92071127;
 		tx_emulator_record.serial3 = 0;
-		eedb_format_memory(&eedb_hcstx);
+		//eedb_format_memory(&eedb_hcstx);
 		eedb_insert_record(&eedb_hcstx, tx_emulator_record.serial, 0, &tx_emulator_record);
 		// - DEBUG
 
@@ -553,7 +553,7 @@ int main(void)
 				// transmit if there is TX profile in memory
 				if(tx_emulator_eeaddr != EEDB_INVALID_ADDR) {
 					ledc_on();
-					kl_tx(&kl_ctx, (uint8_t *)&tx_emulator_kl_buff, 66, tx_emulator_record.timing_element, 25, tx_emulator_record.header_length, 13800);
+					kl_tx(&kl_ctx, (uint8_t *)&tx_emulator_kl_buff, 66, tx_emulator_record.timing_element, 12, tx_emulator_record.header_length, 13500);
 					ledc_off();
 				}
 				// report error
@@ -576,9 +576,13 @@ uint8_t event_keydown(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_he
 	uint8_t record_found = 0;
 	if((option_state & OP_STATE_1) || (option_state & OP_STATE_2))
 	{
+		ledb_on();
 		uint16_t eeaddr = eedb_find_record_eeaddr(&eedb_hcsdb, decoded->serial, 0, 0);
+		ledb_off();
 		if (eeaddr != EEDB_INVALID_ADDR) {
+			ledb_on();
 			eedb_read_record_by_eeaddr(&eedb_hcsdb, eeaddr, header, record);
+			ledb_off();
 			record_found = 1;
 
 			uint8_t do_process = 0;
@@ -622,7 +626,6 @@ uint8_t event_keydown(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_he
 						&& decoded->buttons == decoded->buttons_enc
 						&& next_within_window(decoded->counter, record->counter, 16)
 					) {
-
 						do_process = 1;
 
 						#ifdef DEBUG
@@ -652,7 +655,9 @@ uint8_t event_keydown(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_he
 
 							// update database with new COUNTER value received but in the RESYNC field
 							record->counter_resync = decoded->counter;
+							ledb_on();
 							eedb_update_record(&eedb_hcsdb, header->pk, 0, 0, 0, record);
+							ledb_off();
 						}
 					}
 				}
@@ -695,13 +700,15 @@ uint8_t event_keydown(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_he
 
 					// ucitaj iz eeproma MITM HCS101 profil
 					struct eedb_hcs_record hcs101record;
+					ledb_on();
 					uint16_t eeaddr = eedb_find_record_eeaddr(&eedb_hcsmitm, EEDB_PKFK_ANY, 0, 0);
+					ledb_off();
 					if (eeaddr != EEDB_INVALID_ADDR) {
-						ledb_on();
-
 						kl_rx_stop(&kl_ctx);
 
+						ledb_on();
 						eedb_read_record_by_eeaddr(&eedb_hcsmitm, eeaddr, 0, &hcs101record);
+						ledb_off();
 
 						// transfer from edb_hcs_record to KEELOQ_DECODE_PLAIN so we can encode it and transmit
 						struct KEELOQ_DECODE_PLAIN hcs101decoded;
@@ -721,14 +728,14 @@ uint8_t event_keydown(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_he
 						}
 
 						// update HCS101 MITM profile, the counter value has changed above (++hcs101record.counter)
+						ledb_on();
 						eedb_update_record(&eedb_hcsmitm, EEDB_PKFK_ANY, 0, 0, 0, &hcs101record);
+						ledb_off();
 
 						delay_ms_(50);
 
 						kl_rx_flush(&kl_ctx);
 						kl_rx_start(&kl_ctx);
-
-						ledb_off();
 					}
 				}
 			}
@@ -742,8 +749,6 @@ uint8_t event_keydown(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_he
 
 	// OPTION: Grabber/Logger
 	if(option_state & OP_STATE_3) {
-		ledb_on();
-
 		#ifdef DEBUG
 		char tmp[64];
 		sprintf(tmp, "LOGGING SERIAL: %lu\r\n", decoded->serial);
@@ -751,7 +756,9 @@ uint8_t event_keydown(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_he
 		#endif
 
 		// vidi imal ga vec u grabbed tabeli, ako nema insertuj, ako ima probaj ga klasificirati i updejtuj record
+		ledb_on();
 		last_grabbed_eeaddr = eedb_find_record_eeaddr(&eedb_hcslogdevices, decoded->serial, 0, 0);
+		ledb_off();
 		struct eedb_hcs_record dbrecord;
 		if (last_grabbed_eeaddr == EEDB_INVALID_ADDR) {
 			#ifdef DEBUG
@@ -770,13 +777,17 @@ uint8_t event_keydown(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_he
 			dbrecord.header_length = kl_ctx.kl_rx_header_length;
 
 			// save to database
+			ledb_on();
 			eedb_insert_record(&eedb_hcslogdevices, decoded->serial, 0, &dbrecord);
+			ledb_off();
 
 			runtime_grabbed_cnt++;
 		}
 		else {
 			// ucitaj prethodnu prvi transmisiju, i ako vec nije - klasificiraj ga kao HCS101 ili neki od rolling-code-ova
+			ledb_on();
 			eedb_read_record_by_eeaddr(&eedb_hcslogdevices, last_grabbed_eeaddr, 0, &dbrecord);
+			ledb_off();
 
 			#ifdef DEBUG
 			sprintf(tmp, "FOUND AS: %u, SERIAL: %lu\r\n", dbrecord.encoder, dbrecord.serial);
@@ -809,13 +820,17 @@ uint8_t event_keydown(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_he
 					sprintf(tmp, "CLASSIFIED AS: %u\r\n", dbrecord.encoder);
 					uart_puts(tmp);
 					#endif
+					ledb_on();
 					eedb_update_record(&eedb_hcslogdevices, decoded->serial, 0, 0, 0, &dbrecord);
+					ledb_off();
 				}
 			}
 			// if it is HCS101, update the SYNC COUNTER value so we keep track of it
 			else if (dbrecord.encoder == ENCODER_HCS101) {
 				dbrecord.counter = decoded->counter;
+				ledb_on();
 				eedb_update_record(&eedb_hcslogdevices, decoded->serial, 0, 0, 0, &dbrecord);
+				ledb_off();
 			}
 		}
 
@@ -826,10 +841,10 @@ uint8_t event_keydown(struct KEELOQ_DECODE_PLAIN *decoded, struct eedb_record_he
 
 			// save to database
 			// note to myself: i should make PK auto increment functionality for this reason...
+			ledb_on();
 			eedb_insert_record(&eedb_hcsloglogs, 0, decoded->serial, &log_record);
+			ledb_off();
 		}
-
-		ledb_off();
 	}
 
 	return record_found; // this is used only for Options 1 & 2
